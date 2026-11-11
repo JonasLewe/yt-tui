@@ -1,5 +1,7 @@
 # 🎛️ YouTrack Terminal User Interface (TUI)
 
+This is [JonasLewe's fork](https://github.com/JonasLewe/yt-tui) of [nospor/yt-tui](https://github.com/nospor/yt-tui). Its `main` branch includes the assignee and external-editor fixes, Knowledge Base browsing/editing, numbered panels, and optional integration with [yt-tui.nvim](https://github.com/JonasLewe/yt-tui.nvim). The application also runs independently of Neovim.
+
 A sleek, keyboard-driven terminal dashboard for JetBrains YouTrack, written in Go using the **Bubble Tea** framework. It communicates directly with the YouTrack REST API to provide high-performance, asynchronous, and interactive issue management without requiring any external Python CLI.
 
 Styled out-of-the-box with a vibrant **Catppuccin Mocha** color palette, `yt-tui` keeps you in your terminal flow while tracking your project tasks.
@@ -41,26 +43,26 @@ Styled out-of-the-box with a vibrant **Catppuccin Mocha** color palette, `yt-tui
 ## 🚀 Prerequisites
 
 If you choose to build the project from source, you will need:
-1. **Go Compiler**: Go 1.18+ installed on your system.
+1. **Go Compiler**: Go 1.24.2 or newer, matching [go.mod](go.mod).
 
 ---
 
 ## 🛠️ Installation & Building
 
-### 📦 Option 1: Download Pre-built Binaries (Recommended)
+### 📦 Upstream Pre-built Binaries
 
-You can download the latest pre-compiled binary for your platform directly from the [GitHub Releases](https://github.com/nospor/yt-tui/releases) page.
+The original project's pre-compiled binaries are available from [upstream releases](https://github.com/nospor/yt-tui/releases). Those binaries do not include this fork's additions. To use the features described above, build this fork from source below; publishing its source does not create a binary release.
 
 1. Go to [Releases](https://github.com/nospor/yt-tui/releases) and download the archive matching your operating system and architecture (Linux, macOS, Windows; AMD64/ARM64).
 2. Extract the downloaded archive.
 3. (Optional) Copy the `yt-tui` binary to a directory in your `PATH` (e.g., `/usr/local/bin/` on Linux/macOS) to run it from anywhere.
 
-### 🛠️ Option 2: Build from Source
+### 🛠️ Build This Fork from Source
 
 If you have Go installed, you can build the application manually:
 
 ```bash
-git clone https://github.com/nospor/yt-tui.git
+git clone https://github.com/JonasLewe/yt-tui.git
 cd yt-tui
 
 # to quickly build
@@ -457,8 +459,8 @@ Knowledge Base access uses the current connection and its article permissions. E
 
 ## License
 
-TeamsTUI is licensed under the MIT License. See [LICENSE](LICENSE) for details.
+YouTrack TUI is licensed under the MIT License. The original copyright and license are preserved in [LICENSE](LICENSE).
 
 ## Thanks For Visiting
-Hope you liked it. Wanna **[buy Me a coffee](https://www.buymeacoffee.com/nospor)**?
+Thanks to [nospor](https://github.com/nospor) for the original application. You can [support the upstream author](https://www.buymeacoffee.com/nospor).
 
