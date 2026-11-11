@@ -234,6 +234,10 @@ func (m dashboardModel) Update(msg tea.Msg) (res dashboardModel, retCmd tea.Cmd)
 			return m, nil
 		}
 		switch msg.String() {
+		case "0":
+			m.active = panelIssues
+		case "1":
+			m.active = panelProjects
 		case "tab":
 			if m.active == panelIssues {
 				m.active = panelProjects
@@ -431,7 +435,7 @@ func (m dashboardModel) View() string {
 	if m.active == panelIssues {
 		issuesBorder = StyleFocusBorder
 	}
-	issuesTitle := lipgloss.NewStyle().Foreground(lipgloss.Color(ColorViolet)).Bold(true).Render(" My Open Issues ")
+	issuesTitle := lipgloss.NewStyle().Foreground(lipgloss.Color(ColorViolet)).Bold(true).Render(" [0] My Open Issues ")
 	issuesPanel := issuesBorder.
 		Width(panelWidth).
 		Height(panelHeight).
@@ -492,7 +496,7 @@ func (m dashboardModel) View() string {
 	if m.active == panelProjects {
 		projectsBorder = StyleFocusBorder
 	}
-	projectsTitle := lipgloss.NewStyle().Foreground(lipgloss.Color(ColorViolet)).Bold(true).Render(" Projects ")
+	projectsTitle := lipgloss.NewStyle().Foreground(lipgloss.Color(ColorViolet)).Bold(true).Render(" [1] Projects ")
 	projectsPanel := projectsBorder.
 		Width(panelWidth).
 		Height(panelHeight).
@@ -501,7 +505,7 @@ func (m dashboardModel) View() string {
 	panels := lipgloss.JoinHorizontal(lipgloss.Top, issuesPanel, "  ", projectsPanel)
 
 	title := StyleTitle.Render(" YouTrack Dashboard ")
-	help := StyleHelp.Render(" [Tab] Switch Panels  [↑↓] Move  [Space] Action  [Enter] Select  [K] Knowledge Base  [n] New Issue  [p] Projects  [b] Agile Boards  [f] Favorite View  [r] Refresh  [?] Help  [q] Quit ")
+	help := StyleHelp.Render(" [0/1] Panel  [Tab] Switch Panels  [↑↓] Move  [Space] Action  [Enter] Select  [K] Knowledge Base  [n] New Issue  [p] Projects  [b] Agile Boards  [f] Favorite View  [r] Refresh  [?] Help  [q] Quit ")
 
 	view := lipgloss.JoinVertical(lipgloss.Left, title, panels, "", help)
 
