@@ -77,7 +77,8 @@ func runKnowledgeBaseCommand(t *testing.T, app *AppModel, cmd tea.Cmd) {
 		return
 	}
 	switch msg.(type) {
-	case pushStateMsg, popStateMsg, articlesDataMsg, articleDetailDataMsg:
+	case pushStateMsg, popStateMsg, articlesDataMsg, articleDetailDataMsg,
+		articleFormDataMsg, articleFormSubmittedMsg, articleSavedMsg:
 		updated, next := app.Update(msg)
 		*app = updated.(AppModel)
 		runKnowledgeBaseCommand(t, app, next)

@@ -25,6 +25,7 @@ const (
 	stateForm          State = "form"
 	stateArticles      State = "knowledge-base"
 	stateArticleDetail State = "article"
+	stateArticleForm   State = "article-form"
 )
 
 // navEntry tracks screens for back-navigation.
@@ -88,6 +89,7 @@ type AppModel struct {
 	form          formModel
 	articles      articlesModel
 	articleDetail articleDetailModel
+	articleForm   articleFormModel
 }
 
 func NewAppModel(initialURL string) AppModel {
@@ -165,6 +167,7 @@ func NewAppModel(initialURL string) AppModel {
 		form:          newFormModel(client, cfg),
 		articles:      newArticlesModel(client, cfg),
 		articleDetail: newArticleDetailModel(client, cfg),
+		articleForm:   newArticleFormModel(client, cfg),
 	}
 }
 
@@ -384,6 +387,20 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := m.switchState(stateDetail, msg.issueID, false)
 		return m, cmd
 
+	case articleSavedMsg:
+		if m.state != stateArticleForm || msg.requestID != m.articleForm.requestID {
+			return m, nil
+		}
+		m.articles.invalidateProject(msg.projectCode)
+		if len(m.history) > 0 {
+			last := m.history[len(m.history)-1]
+			m.history = m.history[:len(m.history)-1]
+			cmd := m.switchState(last.state, last.data, true)
+			return m, cmd
+		}
+		cmd := m.switchState(stateArticles, msg.projectCode, true)
+		return m, cmd
+
 	case popStateMsg:
 		if len(m.history) > 0 {
 			if msg.projectCodeToInvalidate != "" {
@@ -436,6 +453,9 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, cmd)
 	case stateArticleDetail:
 		m.articleDetail, cmd = m.articleDetail.Update(msg)
+		cmds = append(cmds, cmd)
+	case stateArticleForm:
+		m.articleForm, cmd = m.articleForm.Update(msg)
 		cmds = append(cmds, cmd)
 	}
 
@@ -493,6 +513,9 @@ func (m *AppModel) switchState(state State, data string, isBack bool) tea.Cmd {
 	case stateArticleDetail:
 		m.sizeArticleViews()
 		return m.articleDetail.initArticle(data)
+	case stateArticleForm:
+		m.sizeArticleViews()
+		return m.articleForm.setupForm(data)
 	}
 	return nil
 }
@@ -503,6 +526,8 @@ func (m *AppModel) sizeArticleViews() {
 	m.articles.height = max(1, m.height-5)
 	m.articleDetail.width = m.articles.width
 	m.articleDetail.height = m.articles.height
+	m.articleForm.width = m.articles.width
+	m.articleForm.height = m.articles.height
 	if m.state == stateArticleDetail {
 		m.articleDetail.updateViewportSizes()
 	}
@@ -532,6 +557,8 @@ func (m AppModel) View() string {
 		childView = m.articles.View()
 	case stateArticleDetail:
 		childView = m.articleDetail.View()
+	case stateArticleForm:
+		childView = m.articleForm.View()
 	}
 
 	// Root visual container wrapping child screens
@@ -569,7 +596,7 @@ func (m AppModel) View() string {
 		lipgloss.NewStyle().Foreground(lipgloss.Color(ColorCyan)).Render(" 🧭 "+breadcrumbStr),
 		statusPart,
 	)
-	if m.state == stateArticles || m.state == stateArticleDetail {
+	if m.state == stateArticles || m.state == stateArticleDetail || m.state == stateArticleForm {
 		// Article viewports reserve one line for the breadcrumb, even when
 		// opened through a project's issues list in a narrow terminal.
 		statusBarText = ansi.Truncate(statusBarText, max(1, m.width), "…")
@@ -798,6 +825,8 @@ func (m AppModel) isAnyInputFocused() bool {
 		return m.issues.searchMode
 	case stateArticles:
 		return m.articles.searchMode
+	case stateArticleForm:
+		return m.articleForm.summaryInput.Focused() || m.articleForm.contentInput.Focused()
 	case stateDetail:
 		return m.detail.textInput.Focused() ||
 			m.detail.commentInput.Focused() ||
@@ -901,6 +930,10 @@ func (m AppModel) renderHelpPopup() string {
 			{"↑/↓ (j/k)", "Move/scroll"},
 			{"/", "Filter article titles and IDs"},
 			{"Enter", "Read article / accept filter"},
+			{"n", "Create article from list"},
+			{"e", "Edit article from reader"},
+			{"Ctrl+g", "Edit form content in $EDITOR"},
+			{"Ctrl+s", "Save article form"},
 			{"PgUp/PgDn", "Page through list/article"},
 			{"m", "Toggle article Markdown"},
 			{"r", "Refresh articles/article"},

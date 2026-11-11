@@ -1,6 +1,7 @@
 package ytcli
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -104,6 +105,98 @@ func (c *Client) GetArticle(articleID string) (*Article, error) {
 		return nil, errors.New("article response has no database ID")
 	}
 	return &article, nil
+}
+
+// CreateArticle creates an article in a project, optionally beneath a parent,
+// and returns its readable ID (or database ID when no readable ID is returned).
+func (c *Client) CreateArticle(projectCode, summary, content, parentID string) (string, error) {
+	if c.baseURL == "" || c.token == "" {
+		return "", errors.New("missing YouTrack connection URL or token")
+	}
+	projectCode = strings.TrimSpace(projectCode)
+	if projectCode == "" {
+		return "", errors.New("project short name is required")
+	}
+	if strings.TrimSpace(summary) == "" {
+		return "", errors.New("article summary is required")
+	}
+	if parentID != "" {
+		parentID = strings.TrimSpace(parentID)
+		if !validArticlePathID(parentID) {
+			return "", errors.New("a valid parent article ID is required")
+		}
+	}
+	projectID, err := c.getProjectIDByShortName(projectCode)
+	if err != nil {
+		return "", err
+	}
+	if !validArticlePathID(projectID) {
+		return "", errors.New("project has no valid database ID")
+	}
+	payload := map[string]interface{}{
+		"project": map[string]string{"id": projectID},
+		"summary": summary,
+		"content": content,
+	}
+	if parentID != "" {
+		payload["parentArticle"] = map[string]string{"id": parentID}
+	}
+	endpoint := strings.TrimRight(c.baseURL, "/") + "/api/articles?fields=id,idReadable"
+	body, status, err := c.writeArticleResource(endpoint, payload)
+	if err != nil {
+		return "", err
+	}
+	if status != http.StatusOK && status != http.StatusCreated {
+		return "", parseAPIError(status, body)
+	}
+	var created Article
+	if err := json.Unmarshal(body, &created); err != nil {
+		return "", fmt.Errorf("decode created article: %w", err)
+	}
+	if created.IDReadable != "" {
+		return created.IDReadable, nil
+	}
+	if created.ID == "" {
+		return "", errors.New("article creation response has no ID")
+	}
+	return created.ID, nil
+}
+
+// UpdateArticle changes only an article's title and content. Project, parent,
+// visibility, and all other article attributes remain untouched.
+func (c *Client) UpdateArticle(articleID, summary, content string) error {
+	if c.baseURL == "" || c.token == "" {
+		return errors.New("missing YouTrack connection URL or token")
+	}
+	articleID = strings.TrimSpace(articleID)
+	if !validArticlePathID(articleID) {
+		return errors.New("a valid article ID is required")
+	}
+	if strings.TrimSpace(summary) == "" {
+		return errors.New("article summary is required")
+	}
+	payload := map[string]interface{}{"summary": summary, "content": content}
+	endpoint := strings.TrimRight(c.baseURL, "/") + "/api/articles/" + url.PathEscape(articleID)
+	body, status, err := c.writeArticleResource(endpoint, payload)
+	if err != nil {
+		return err
+	}
+	if status != http.StatusOK && status != http.StatusNoContent {
+		return parseAPIError(status, body)
+	}
+	return nil
+}
+
+func (c *Client) writeArticleResource(endpoint string, payload map[string]interface{}) ([]byte, int, error) {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return nil, 0, err
+	}
+	req, err := c.newRequest(http.MethodPost, endpoint, bytes.NewReader(data))
+	if err != nil {
+		return nil, 0, err
+	}
+	return c.doRequest(req)
 }
 
 func validArticlePathID(id string) bool {

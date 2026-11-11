@@ -99,6 +99,13 @@ func (m *articlesModel) startLoading() tea.Cmd {
 	})
 }
 
+func (m *articlesModel) invalidateProject(projectCode string) {
+	if m.projectCode == projectCode {
+		m.loaded = false
+		m.requestID++
+	}
+}
+
 func (m articlesModel) Update(msg tea.Msg) (articlesModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case spinner.TickMsg:
@@ -157,6 +164,9 @@ func (m articlesModel) Update(msg tea.Msg) (articlesModel, tea.Cmd) {
 			return m, nil
 		}
 		switch msg.String() {
+		case "n":
+			data := "new:" + m.projectCode + ":" + m.selectedID()
+			return m, func() tea.Msg { return pushStateMsg{state: stateArticleForm, data: data} }
 		case "up", "k", "ctrl+p":
 			m.cursor--
 		case "down", "j", "ctrl+n":
@@ -276,7 +286,7 @@ func (m *articlesModel) rebuildRows(selected string) {
 }
 
 func (m articlesModel) footerLines() []string {
-	help := "[Esc] Back  [↑↓/jk] Navigate  [Enter] Read  [/] Filter  [r] Refresh  [?] Help  [q] Quit"
+	help := "[Esc] Back  [↑↓/jk] Navigate  [Enter] Read  [n] New  [/] Filter  [r] Refresh  [?] Help  [q] Quit"
 	if m.searchMode {
 		help = "[Enter/Esc] Finish filter  Type an article title or ID"
 	}
@@ -322,7 +332,7 @@ func (m articlesModel) View() string {
 	} else if query := strings.TrimSpace(m.searchInput.Value()); query != "" {
 		lines = append(lines, StyleSubtext.Render(fit(fmt.Sprintf("%d matches · Filter: %s", len(m.rows), articlesSingleLine(query)))))
 	} else {
-		lines = append(lines, StyleSubtext.Render(fit(fmt.Sprintf("%d articles · Read-only", len(m.rows)))))
+		lines = append(lines, StyleSubtext.Render(fit(fmt.Sprintf("%d articles", len(m.rows)))))
 	}
 	bodyHeight := m.listHeight()
 	var body []string

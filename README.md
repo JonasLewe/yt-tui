@@ -26,7 +26,7 @@ Styled out-of-the-box with a vibrant **Catppuccin Mocha** color palette, `yt-tui
 - **⚡ Asynchronous Paginated Loading**: Loads issues in the background without blocking the UI, giving you an instantly responsive view even on large codebases.
 - **🔍 Filter & Search**: Instantly query and filter issues in lists by readable ID or summary text using local filtering.
 - **📝 Comprehensive Issue Detail**: Renders descriptions (with a toggle `m` to switch between plain text and formatted markdown, saved in configuration), assignees, priorities, states, and custom fields (including **Boards** and **Estimation**). Supports dedicated scrollable viewports for description, comments, linked issues, and attachments.
-- **📚 Project Knowledge Base**: Browse a project's article hierarchy, filter article titles and IDs, and read articles in a scrollable Markdown or plain-text view. Press `K` on a project or in its issues list.
+- **📚 Project Knowledge Base**: Browse a project's article hierarchy, filter article titles and IDs, and read articles in a scrollable Markdown or plain-text view. Create and edit articles using the same form controls and external editor as issues. Press `K` on a project or in its issues list.
 - **🔄 Complete Issue Lifecycle**:
   - **Create & Clone**: Instantly spawn new issues or clone existing ones (pre-populating description, type, priority, and assignee details).
   - **State Transitions**: Transition states (e.g. `Open` ➔ `In Progress` ➔ `Fixed`) dynamically.
@@ -356,6 +356,7 @@ Press uppercase `K` on a project in the dashboard or Projects List, or while vie
 * `/`: Filter by article title or ID across all loaded articles. Matching nested articles are included independently of their parents. This filter does not search article body text.
 * `Enter` or `Esc` while typing: Finish entering the filter.
 * `Enter` on an article: Open the article reader.
+* `n`: Create an article in the current project. The form's **Parent** dropdown offers **None** or the selected article, using the same `←` / `→` or `h` / `l` controls as other dropdowns. **None** creates a top-level article.
 * `Esc` / `Backspace`: Clear an active filter; when no filter is active, return to the previous screen.
 * `r`: Reload the project's articles.
 
@@ -365,11 +366,19 @@ In the **article reader**:
 * `PgUp` / `PgDn`: Scroll a page; `Ctrl+u` / `Ctrl+d`: Scroll half a page.
 * `Home` / `End` or `g` / `G`: Jump to the top or bottom.
 * `m`: Toggle Markdown rendering and plain text for the current reader. The initial mode follows `render_markdown`; this toggle does not change your saved settings.
+* `e`: Edit the article's summary and content using the article form.
 * `r`: Reload the article.
 * `Esc` / `Backspace`: Return to the article list, preserving its filter and selection.
 * `q` / `Ctrl+C`: Quit the application (also available in the article list, except `q` while typing a filter).
 
-Knowledge Base access uses the current connection and its article permissions. Empty lists and API errors are displayed in the TUI. This feature supports reading articles; article editing, comments, and attachment management remain available in YouTrack's web interface. It also works in the Neovim floating terminal without plugin changes.
+The **article form** follows the issue form workflow:
+
+* `Tab` / `Shift+Tab`: Move between fields. Arrow keys navigate fields or move within the content textarea, as in the issue form.
+* `Ctrl+g` on **Content**: Edit the draft in the same `$EDITOR` used for issues, with `vim` as the fallback. Returning from the editor updates the draft; it does not save the article to YouTrack.
+* `Ctrl+s`: Save and submit. On success, return to the previous screen with refreshed article data.
+* `Esc`: Cancel and return. Save errors retain the draft for correction or retry.
+
+Knowledge Base access uses the current connection and its article permissions. Empty lists and API errors are displayed in the TUI. Article comments and attachment management remain available in YouTrack's web interface. It also works in the Neovim floating terminal without plugin changes.
 
 ### 📋 Issues List View
 * `↑` / `↓` (or `k` / `j`): Scroll issues table.

@@ -113,6 +113,9 @@ func (m articleDetailModel) Update(msg tea.Msg) (articleDetailModel, tea.Cmd) {
 			return m, nil
 		}
 		switch msg.String() {
+		case "e":
+			data := "edit:" + m.articleID
+			return m, func() tea.Msg { return pushStateMsg{state: stateArticleForm, data: data} }
 		case "home", "g":
 			m.viewport.GotoTop()
 			return m, nil
@@ -165,7 +168,7 @@ func (m articleDetailModel) footer() string {
 	if m.renderMarkdown {
 		toggle = "Plain text"
 	}
-	help := "[Esc] Back  [↑↓/jk] Scroll  [PgUp/PgDn] Page  [m] " + toggle + "  [r] Refresh  [?] Help  [q] Quit"
+	help := "[Esc] Back  [↑↓/jk] Scroll  [PgUp/PgDn] Page  [e] Edit  [m] " + toggle + "  [r] Refresh  [?] Help  [q] Quit"
 	return StyleHelp.Render(wrapFooterHelp(help, max(1, m.width)))
 }
 
