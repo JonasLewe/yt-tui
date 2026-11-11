@@ -22,7 +22,6 @@ import (
 	"github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/charmbracelet/x/ansi"
 )
 
 var clipboardWriteAll = clipboard.WriteAll
@@ -3687,76 +3686,6 @@ func (m detailModel) renderFilePickerPopup() string {
 		Render(popupContent)
 
 	return popup
-}
-
-func renderBoxWithTitle(style lipgloss.Style, title string, content string, active bool) string {
-	// Pad content to match the style's height
-	expectedHeight := style.GetHeight()
-	if expectedHeight > 0 {
-		trimmedContent := strings.TrimRight(content, "\n")
-		lines := strings.Split(trimmedContent, "\n")
-		if len(lines) < expectedHeight {
-			padding := make([]string, expectedHeight-len(lines))
-			content = trimmedContent + "\n" + strings.Join(padding, "\n")
-		}
-	}
-
-	rendered := style.Render(content)
-	lines := strings.Split(rendered, "\n")
-	if len(lines) == 0 {
-		return rendered
-	}
-
-	totalWidth := lipgloss.Width(lines[0])
-
-	borderColor := lipgloss.Color(ColorOverlay)
-	if active {
-		borderColor = lipgloss.Color(ColorViolet)
-	}
-	borderStyle := lipgloss.NewStyle().Foreground(borderColor)
-
-	plainTop := stripAnsi(lines[0])
-	runes := []rune(plainTop)
-
-	topLeft := "╭"
-	topRight := "╮"
-	horizontal := "─"
-	if len(runes) >= 2 {
-		topLeft = string(runes[0])
-		topRight = string(runes[len(runes)-1])
-		horizontal = string(runes[1])
-	}
-
-	if totalWidth < 9 {
-		return rendered
-	}
-	// Keep the panel's numeric shortcut visible even when its name is clipped.
-	ellipsis := "…"
-	if totalWidth == 9 {
-		ellipsis = "" // All three available cells are needed for "[n]".
-	}
-	titleText := " " + ansi.Truncate(title, totalWidth-6, ellipsis) + " "
-	titleLen := lipgloss.Width(titleText)
-
-	var titleStyle lipgloss.Style
-	if active {
-		titleStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(ColorViolet)).Bold(true)
-	} else {
-		titleStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(ColorSubtext))
-	}
-	titleRendered := titleStyle.Render(titleText)
-
-	leftDashes := 2
-	rightDashes := totalWidth - 2 - leftDashes - titleLen
-	if rightDashes < 0 {
-		rightDashes = 0
-	}
-
-	leftPart := borderStyle.Render(topLeft + strings.Repeat(horizontal, leftDashes))
-	rightPart := borderStyle.Render(strings.Repeat(horizontal, rightDashes) + topRight)
-
-	lines[0] = leftPart + titleRendered + rightPart
-	return strings.Join(lines, "\n")
 }
 
 var urlRegex = regexp.MustCompile(`https?://[a-zA-Z0-9-._~:/?#\[\]@!$&'\*+,;=%]+`)

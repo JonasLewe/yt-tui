@@ -426,11 +426,12 @@ func (m dashboardModel) View() string {
 	if m.active == panelIssues {
 		issuesBorder = StyleFocusBorder
 	}
-	issuesTitle := lipgloss.NewStyle().Foreground(lipgloss.Color(ColorViolet)).Bold(true).Render(" [0] My Open Issues ")
-	issuesPanel := issuesBorder.
-		Width(panelWidth).
-		Height(panelHeight).
-		Render(lipgloss.JoinVertical(lipgloss.Left, issuesTitle, "", issuesContent))
+	issuesPanel := renderBoxWithTitle(
+		issuesBorder.Width(panelWidth).Height(panelHeight),
+		"[0] My Open Issues",
+		issuesContent,
+		m.active == panelIssues,
+	)
 
 	maxVisibleProjects := panelHeight - 4
 	if maxVisibleProjects < 1 {
@@ -487,11 +488,12 @@ func (m dashboardModel) View() string {
 	if m.active == panelProjects {
 		projectsBorder = StyleFocusBorder
 	}
-	projectsTitle := lipgloss.NewStyle().Foreground(lipgloss.Color(ColorViolet)).Bold(true).Render(" [1] Projects ")
-	projectsPanel := projectsBorder.
-		Width(panelWidth).
-		Height(panelHeight).
-		Render(lipgloss.JoinVertical(lipgloss.Left, projectsTitle, "", projectsContent))
+	projectsPanel := renderBoxWithTitle(
+		projectsBorder.Width(panelWidth).Height(panelHeight),
+		"[1] Projects",
+		projectsContent,
+		m.active == panelProjects,
+	)
 
 	panels := lipgloss.JoinHorizontal(lipgloss.Top, issuesPanel, "  ", projectsPanel)
 

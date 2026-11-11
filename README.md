@@ -317,7 +317,7 @@ Example board action:
   - `Ctrl+C`: Force quit the application.
 
 ### 🏠 Dashboard View (Home Screen)
-* `0` / `1`: Jump directly to **[0] My Open Issues** or **[1] Projects**, matching the number in each panel title.
+* `0` / `1`: Jump directly to **[0] My Open Issues** or **[1] Projects**, matching the number embedded in each panel's top border.
 * `Tab` / `Shift+Tab`: Switch active focus panel (**My Open Issues** vs **Projects**).
 * `↑` / `↓` (or `k` / `j`): Scroll items inside the active focus panel.
 * `Space` (when focusing My Open Issues): Open the custom quick Actions popup to quickly update the selected issue using a templated sequence (either select via list or hit shortcut number).
