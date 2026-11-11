@@ -317,6 +317,7 @@ Example board action:
   - `Ctrl+C`: Force quit the application.
 
 ### 🏠 Dashboard View (Home Screen)
+* `0` / `1`: Jump directly to **[0] My Open Issues** or **[1] Projects**, matching the number in each panel title.
 * `Tab` / `Shift+Tab`: Switch active focus panel (**My Open Issues** vs **Projects**).
 * `↑` / `↓` (or `k` / `j`): Scroll items inside the active focus panel.
 * `Space` (when focusing My Open Issues): Open the custom quick Actions popup to quickly update the selected issue using a templated sequence (either select via list or hit shortcut number).
@@ -357,6 +358,7 @@ Example board action:
 * `Esc` / `Backspace`: Go back to the dashboard/previous screen.
 
 ### 🔍 Issue Detail View
+* `0` / `1` / `2` / `3`: Jump directly to **[0] Description**, **[1] Comments**, **[2] Links**, or **[3] Attachments**. The numbers stay the same in full-view mode. These shortcuts apply while browsing; numbers retain their normal meaning in text inputs and action popups.
 * `Tab` / `Shift+Tab`: Cycle focus forwards/backwards between the Description, Comments, Links (Parents/Children), and Attachments viewports.
 * `↑` / `↓` (or `k` / `j`): Scroll/navigate within the active viewport. In the Comments, Links, and Attachments viewports, this moves the selection cursor.
 * `Enter` (in Links viewport): Jump directly to the highlighted parent/child task.

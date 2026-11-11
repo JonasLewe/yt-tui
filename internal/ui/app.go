@@ -795,6 +795,7 @@ func (m AppModel) renderHelpPopup() string {
 		}),
 		"",
 		formatSection("Dashboard", [][2]string{
+			{"0/1", "Jump to numbered panel"},
 			{"Tab", "Switch panels"},
 			{"↑/↓ (j/k)", "Move selection"},
 			{"Enter", "Select panel item"},
@@ -851,6 +852,7 @@ func (m AppModel) renderHelpPopup() string {
 
 	col3Content := lipgloss.JoinVertical(lipgloss.Left,
 		formatSection("Issue Detail", [][2]string{
+			{"0-3", "Jump to numbered pane"},
 			{"Tab", "Switch active pane"},
 			{"Space", "Custom actions"},
 			{"Enter", "Jump task/Open attach"},

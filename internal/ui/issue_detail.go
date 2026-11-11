@@ -22,6 +22,7 @@ import (
 	"github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 var clipboardWriteAll = clipboard.WriteAll
@@ -1501,6 +1502,11 @@ func (m detailModel) Update(msg tea.Msg) (res detailModel, cmd tea.Cmd) {
 
 		// Normal Mode Key Handling
 		switch msg.String() {
+		case "0", "1", "2", "3":
+			m.activeViewport = int(msg.String()[0] - '0')
+			m.updateViewportSizes()
+			m.updateViewportContents()
+			return m, nil
 		case "o":
 			var urls []string
 			seen := make(map[string]bool)
@@ -2315,7 +2321,7 @@ func (m detailModel) footerHelp() string {
 			editorViewAction = "  [Ctrl+g] Ext View"
 		}
 	}
-	helpStr := fmt.Sprintf(" [Esc] Back  [Tab] Pane  [Space] Action  [Enter] %s  [c] Comment  [Ctrl+f] Attach  [t] Time  [s] State  [R] Repo  [a] Assign  [E] Estimate", enterAction)
+	helpStr := fmt.Sprintf(" [Esc] Back  [0-3/Tab] Pane  [Space] Action  [Enter] %s  [c] Comment  [Ctrl+f] Attach  [t] Time  [s] State  [R] Repo  [a] Assign  [E] Estimate", enterAction)
 	if m.boardsHasField && len(m.boardsOptions) > 0 {
 		helpStr += "  [B] Boards"
 	}
@@ -2965,7 +2971,7 @@ func (m detailModel) View() string {
 	}
 	descView := renderBoxWithTitle(
 		descBorder.Width(m.descViewport.Width+2).Height(m.descViewport.Height),
-		"Description",
+		"[0] Description",
 		m.descViewport.View(),
 		m.activeViewport == 0,
 	)
@@ -2976,7 +2982,7 @@ func (m detailModel) View() string {
 	}
 	commentsView := renderBoxWithTitle(
 		commentsBorder.Width(m.commentsViewport.Width+2).Height(m.commentsViewport.Height),
-		"Comments",
+		"[1] Comments",
 		m.commentsViewport.View(),
 		m.activeViewport == 1,
 	)
@@ -2987,7 +2993,7 @@ func (m detailModel) View() string {
 	}
 	linksView := renderBoxWithTitle(
 		linksBorder.Width(m.linksViewport.Width+2).Height(m.linksViewport.Height),
-		"Links",
+		"[2] Links",
 		m.linksViewport.View(),
 		m.activeViewport == 2,
 	)
@@ -2998,7 +3004,7 @@ func (m detailModel) View() string {
 	}
 	attachmentsView := renderBoxWithTitle(
 		attachmentsBorder.Width(m.attachmentsViewport.Width+2).Height(m.attachmentsViewport.Height),
-		"Attachments",
+		"[3] Attachments",
 		m.attachmentsViewport.View(),
 		m.activeViewport == 3,
 	)
@@ -3721,11 +3727,16 @@ func renderBoxWithTitle(style lipgloss.Style, title string, content string, acti
 		horizontal = string(runes[1])
 	}
 
-	titleText := " " + title + " "
-	titleLen := len(titleText)
-	if totalWidth < titleLen+4 {
+	if totalWidth < 9 {
 		return rendered
 	}
+	// Keep the panel's numeric shortcut visible even when its name is clipped.
+	ellipsis := "…"
+	if totalWidth == 9 {
+		ellipsis = "" // All three available cells are needed for "[n]".
+	}
+	titleText := " " + ansi.Truncate(title, totalWidth-6, ellipsis) + " "
+	titleLen := lipgloss.Width(titleText)
 
 	var titleStyle lipgloss.Style
 	if active {
