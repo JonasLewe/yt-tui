@@ -26,6 +26,7 @@ Styled out-of-the-box with a vibrant **Catppuccin Mocha** color palette, `yt-tui
 - **⚡ Asynchronous Paginated Loading**: Loads issues in the background without blocking the UI, giving you an instantly responsive view even on large codebases.
 - **🔍 Filter & Search**: Instantly query and filter issues in lists by readable ID or summary text using local filtering.
 - **📝 Comprehensive Issue Detail**: Renders descriptions (with a toggle `m` to switch between plain text and formatted markdown, saved in configuration), assignees, priorities, states, and custom fields (including **Boards** and **Estimation**). Supports dedicated scrollable viewports for description, comments, linked issues, and attachments.
+- **📚 Project Knowledge Base**: Browse a project's article hierarchy, filter article titles and IDs, and read articles in a scrollable Markdown or plain-text view. Press `K` on a project or in its issues list.
 - **🔄 Complete Issue Lifecycle**:
   - **Create & Clone**: Instantly spawn new issues or clone existing ones (pre-populating description, type, priority, and assignee details).
   - **State Transitions**: Transition states (e.g. `Open` ➔ `In Progress` ➔ `Fixed`) dynamically.
@@ -325,6 +326,7 @@ Example board action:
   - Selecting a project opens the **Issues List** filtered to that project (selecting **Issues created by me** displays all issues created/reported by you).
 * `n`: Create a new issue (pre-selects the highlighted project if focused).
 * `p`: View the full **Projects List** screen.
+* `K` (when focusing a real project): Open that project's **Knowledge Base**.
 * `b`: View the full **Agile Boards** screen.
 * `f`: Jump directly to your configured favorite tasks list (shows an error message if none is set yet).
 * `r`: Reload and refresh all dashboard data.
@@ -333,6 +335,7 @@ Example board action:
 ### 📂 Projects List View
 * `↑` / `↓` (or `k` / `j`): Navigate projects table.
 * `Enter`: View issues inside the selected project.
+* `K`: Open the selected project's **Knowledge Base** (unavailable for **Issues created by me**).
 * `n`: Create a new issue in the selected project.
 * `r`: Refresh projects list.
 * `Esc` / `Backspace`: Go back to the dashboard.
@@ -344,9 +347,34 @@ Example board action:
 * `r`: Refresh agile boards list.
 * `Esc` / `Backspace`: Go back to the dashboard.
 
+### 📚 Knowledge Base
+
+Press uppercase `K` on a project in the dashboard or Projects List, or while viewing that project's issues. The article list loads all available pages and shows nested articles beneath their parents. Articles whose parents are not visible remain accessible.
+
+* `↑` / `↓` or `k` / `j`: Move between articles.
+* `PgUp` / `PgDn`, `Home` / `End`: Move through the list.
+* `/`: Filter by article title or ID across all loaded articles. Matching nested articles are included independently of their parents. This filter does not search article body text.
+* `Enter` or `Esc` while typing: Finish entering the filter.
+* `Enter` on an article: Open the article reader.
+* `Esc` / `Backspace`: Clear an active filter; when no filter is active, return to the previous screen.
+* `r`: Reload the project's articles.
+
+In the **article reader**:
+
+* `↑` / `↓` or `k` / `j`: Scroll the article.
+* `PgUp` / `PgDn`: Scroll a page; `Ctrl+u` / `Ctrl+d`: Scroll half a page.
+* `Home` / `End` or `g` / `G`: Jump to the top or bottom.
+* `m`: Toggle Markdown rendering and plain text for the current reader. The initial mode follows `render_markdown`; this toggle does not change your saved settings.
+* `r`: Reload the article.
+* `Esc` / `Backspace`: Return to the article list, preserving its filter and selection.
+* `q` / `Ctrl+C`: Quit the application (also available in the article list, except `q` while typing a filter).
+
+Knowledge Base access uses the current connection and its article permissions. Empty lists and API errors are displayed in the TUI. This feature supports reading articles; article editing, comments, and attachment management remain available in YouTrack's web interface. It also works in the Neovim floating terminal without plugin changes.
+
 ### 📋 Issues List View
 * `↑` / `↓` (or `k` / `j`): Scroll issues table.
 * `Enter`: View details of the selected issue.
+* `K`: Open the current project's **Knowledge Base**. Available in a project-specific issues list.
 * `/`: Activate search/filter mode. Type keywords to filter issues by summary/ID. Press `Esc` or `Enter` to close search mode.
 * `Space`: Open the custom quick Actions popup to quickly update the selected issue using a templated sequence (either select via list or hit shortcut number).
 * `f`: Toggle the current tasks list view as your favorite view (adds/removes a yellow star `★` in the header and saves to config).

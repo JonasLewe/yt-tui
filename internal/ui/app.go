@@ -10,18 +10,21 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 type State string
 
 const (
-	stateWelcome   State = "welcome"
-	stateDashboard State = "dashboard"
-	stateProjects  State = "projects"
-	stateBoards    State = "boards"
-	stateIssues    State = "issues"
-	stateDetail    State = "detail"
-	stateForm      State = "form"
+	stateWelcome       State = "welcome"
+	stateDashboard     State = "dashboard"
+	stateProjects      State = "projects"
+	stateBoards        State = "boards"
+	stateIssues        State = "issues"
+	stateDetail        State = "detail"
+	stateForm          State = "form"
+	stateArticles      State = "knowledge-base"
+	stateArticleDetail State = "article"
 )
 
 // navEntry tracks screens for back-navigation.
@@ -76,13 +79,15 @@ type AppModel struct {
 	helpShow bool
 
 	// Sub-models
-	welcome   welcomeModel
-	dashboard dashboardModel
-	projects  projectsModel
-	boards    boardsModel
-	issues    issuesModel
-	detail    detailModel
-	form      formModel
+	welcome       welcomeModel
+	dashboard     dashboardModel
+	projects      projectsModel
+	boards        boardsModel
+	issues        issuesModel
+	detail        detailModel
+	form          formModel
+	articles      articlesModel
+	articleDetail articleDetailModel
 }
 
 func NewAppModel(initialURL string) AppModel {
@@ -146,18 +151,20 @@ func NewAppModel(initialURL string) AppModel {
 	}
 
 	return AppModel{
-		client:    client,
-		cfg:       cfg,
-		state:     startState,
-		stateData: startData,
-		history:   history,
-		welcome:   newWelcomeModel(client, cfg, err, prefilledURL),
-		dashboard: newDashboardModel(client, cfg),
-		projects:  newProjectsModel(client),
-		boards:    newBoardsModel(client),
-		issues:    newIssuesModel(client, cfg),
-		detail:    detail,
-		form:      newFormModel(client, cfg),
+		client:        client,
+		cfg:           cfg,
+		state:         startState,
+		stateData:     startData,
+		history:       history,
+		welcome:       newWelcomeModel(client, cfg, err, prefilledURL),
+		dashboard:     newDashboardModel(client, cfg),
+		projects:      newProjectsModel(client),
+		boards:        newBoardsModel(client),
+		issues:        newIssuesModel(client, cfg),
+		detail:        detail,
+		form:          newFormModel(client, cfg),
+		articles:      newArticlesModel(client, cfg),
+		articleDetail: newArticleDetailModel(client, cfg),
 	}
 }
 
@@ -307,6 +314,10 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				canQuit = !m.issues.searchMode
 			case stateDetail:
 				canQuit = m.detail.mode == modeNormal
+			case stateArticles:
+				canQuit = !m.articles.searchMode
+			case stateArticleDetail:
+				canQuit = true
 			}
 			if canQuit {
 				return m, tea.Quit
@@ -340,6 +351,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		m.form.width = childWidth
 		m.form.height = childHeight
+		m.sizeArticleViews()
 
 		// We need to reload viewport sizes since height/width changed
 		if m.state == stateDetail {
@@ -419,6 +431,12 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case stateForm:
 		m.form, cmd = m.form.Update(msg)
 		cmds = append(cmds, cmd)
+	case stateArticles:
+		m.articles, cmd = m.articles.Update(msg)
+		cmds = append(cmds, cmd)
+	case stateArticleDetail:
+		m.articleDetail, cmd = m.articleDetail.Update(msg)
+		cmds = append(cmds, cmd)
 	}
 
 	return m, tea.Batch(cmds...)
@@ -469,8 +487,25 @@ func (m *AppModel) switchState(state State, data string, isBack bool) tea.Cmd {
 		return m.detail.loadDetailCmd()
 	case stateForm:
 		return m.form.setupForm(data)
+	case stateArticles:
+		m.sizeArticleViews()
+		return m.articles.initProject(data, isBack)
+	case stateArticleDetail:
+		m.sizeArticleViews()
+		return m.articleDetail.initArticle(data)
 	}
 	return nil
+}
+
+func (m *AppModel) sizeArticleViews() {
+	// The root view adds two columns of padding on either side.
+	m.articles.width = max(1, m.width-4)
+	m.articles.height = max(1, m.height-5)
+	m.articleDetail.width = m.articles.width
+	m.articleDetail.height = m.articles.height
+	if m.state == stateArticleDetail {
+		m.articleDetail.updateViewportSizes()
+	}
 }
 
 func (m AppModel) View() string {
@@ -493,6 +528,10 @@ func (m AppModel) View() string {
 		childView = m.detail.View()
 	case stateForm:
 		childView = m.form.View()
+	case stateArticles:
+		childView = m.articles.View()
+	case stateArticleDetail:
+		childView = m.articleDetail.View()
 	}
 
 	// Root visual container wrapping child screens
@@ -530,6 +569,11 @@ func (m AppModel) View() string {
 		lipgloss.NewStyle().Foreground(lipgloss.Color(ColorCyan)).Render(" 🧭 "+breadcrumbStr),
 		statusPart,
 	)
+	if m.state == stateArticles || m.state == stateArticleDetail {
+		// Article viewports reserve one line for the breadcrumb, even when
+		// opened through a project's issues list in a narrow terminal.
+		statusBarText = ansi.Truncate(statusBarText, max(1, m.width), "…")
+	}
 
 	statusBar := lipgloss.NewStyle().
 		Border(lipgloss.NormalBorder(), true, false, false, false).
@@ -752,6 +796,8 @@ func (m AppModel) isAnyInputFocused() bool {
 		return m.welcome.urlInput.Focused() || m.welcome.tokenInput.Focused()
 	case stateIssues:
 		return m.issues.searchMode
+	case stateArticles:
+		return m.articles.searchMode
 	case stateDetail:
 		return m.detail.textInput.Focused() ||
 			m.detail.commentInput.Focused() ||
@@ -798,6 +844,7 @@ func (m AppModel) renderHelpPopup() string {
 			{"Tab", "Switch panels"},
 			{"↑/↓ (j/k)", "Move selection"},
 			{"Enter", "Select panel item"},
+			{"K", "Selected project's knowledge base"},
 			{"Space", "Custom actions"},
 			{"r", "Refresh dashboard"},
 			{"n", "Create new issue"},
@@ -809,6 +856,7 @@ func (m AppModel) renderHelpPopup() string {
 		formatSection("Projects", [][2]string{
 			{"↑/↓ (j/k)", "Move selection"},
 			{"Enter", "View project issues"},
+			{"K", "View project knowledge base"},
 			{"n", "New issue in project"},
 			{"r", "Refresh projects"},
 			{"Esc/Bksp", "Go back"},
@@ -828,6 +876,7 @@ func (m AppModel) renderHelpPopup() string {
 			{"↑/↓ (j/k)", "Move selection"},
 			{"Space", "Custom actions"},
 			{"Enter", "View issue details"},
+			{"K", "View project's knowledge base"},
 			{"/", "Search/filter phrase"},
 			{"F", "Filter state/priority"},
 			{"f", "Toggle view favorite"},
@@ -846,6 +895,16 @@ func (m AppModel) renderHelpPopup() string {
 			{"z", "zoxide jump (in file picker)"},
 			{"Ctrl+g", "Edit in $EDITOR"},
 			{"Esc", "Cancel and go back"},
+		}),
+		"",
+		formatSection("Knowledge Base", [][2]string{
+			{"↑/↓ (j/k)", "Move/scroll"},
+			{"/", "Filter article titles and IDs"},
+			{"Enter", "Read article / accept filter"},
+			{"PgUp/PgDn", "Page through list/article"},
+			{"m", "Toggle article Markdown"},
+			{"r", "Refresh articles/article"},
+			{"Esc/Bksp", "Clear filter / go back"},
 		}),
 	)
 

@@ -298,6 +298,15 @@ func (m dashboardModel) Update(msg tea.Msg) (res dashboardModel, retCmd tea.Cmd)
 					return pushStateMsg{state: stateIssues, data: selectedProj.ShortName}
 				}
 			}
+		case "K":
+			if m.active == panelProjects && m.projectCursor >= 0 && m.projectCursor < len(m.projects) {
+				projectCode := m.projects[m.projectCursor].ShortName
+				if projectCode != "" && projectCode != "ME" {
+					return m, func() tea.Msg {
+						return pushStateMsg{state: stateArticles, data: projectCode}
+					}
+				}
+			}
 		case " ":
 			if m.active == panelIssues && len(m.issues) > 0 && len(m.actionList()) > 0 {
 				m.actionMode = true
@@ -492,7 +501,7 @@ func (m dashboardModel) View() string {
 	panels := lipgloss.JoinHorizontal(lipgloss.Top, issuesPanel, "  ", projectsPanel)
 
 	title := StyleTitle.Render(" YouTrack Dashboard ")
-	help := StyleHelp.Render(" [Tab] Switch Panels  [↑↓] Move  [Space] Action  [Enter] Select  [n] New Issue  [p] Projects  [b] Agile Boards  [f] Favorite View  [r] Refresh  [?] Help  [q] Quit ")
+	help := StyleHelp.Render(" [Tab] Switch Panels  [↑↓] Move  [Space] Action  [Enter] Select  [K] Knowledge Base  [n] New Issue  [p] Projects  [b] Agile Boards  [f] Favorite View  [r] Refresh  [?] Help  [q] Quit ")
 
 	view := lipgloss.JoinVertical(lipgloss.Left, title, panels, "", help)
 

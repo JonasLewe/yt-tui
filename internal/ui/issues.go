@@ -1178,6 +1178,13 @@ func (m issuesModel) Update(msg tea.Msg) (issuesModel, tea.Cmd) {
 			m.updateTableRows()
 			m.updateTableHeight()
 			return m, nil
+		case "K":
+			if m.projectCode != "" && m.projectCode != "ME" {
+				projectCode := m.projectCode
+				return m, func() tea.Msg {
+					return pushStateMsg{state: stateArticles, data: projectCode}
+				}
+			}
 		case "f":
 			if m.cfg != nil {
 				currentView := m.currentViewData()
@@ -1492,6 +1499,9 @@ func (m issuesModel) View() string {
 
 	tableStr := m.table.View()
 	help := StyleHelp.Render(" [Esc] Back  [↑↓] Navigate  [Space] Action  [Enter] Detail  [/] Search  [F] Filter  [f] Favorite  [s] Sort  [n] New  [r] Refresh  [?] Help  [q] Quit ")
+	if m.projectCode != "" && m.projectCode != "ME" {
+		help = StyleHelp.Render(" [Esc] Back  [↑↓] Navigate  [Space] Action  [Enter] Detail  [K] Knowledge Base  [/] Search  [F] Filter  [f] Favorite  [s] Sort  [n] New  [r] Refresh  [?] Help  [q] Quit ")
+	}
 
 	view := lipgloss.JoinVertical(lipgloss.Left, title, tableStr, searchBar, "", help)
 
