@@ -8,6 +8,62 @@ import (
 	"testing"
 )
 
+func TestIssueRequestsPreserveAssigneeLogin(t *testing.T) {
+	for _, operation := range []string{"create", "update", "assign"} {
+		for _, login := range []string{"JSmith42", "Jörg.Smith"} {
+			t.Run(operation+"/"+login, func(t *testing.T) {
+				var gotLogin string
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					w.Header().Set("Content-Type", "application/json")
+					if r.Method == http.MethodGet && r.URL.Path == "/api/admin/projects" {
+						_, _ = w.Write([]byte(`[{"id":"0-1","shortName":"DEMO"}]`))
+						return
+					}
+					if r.Method != http.MethodPost || (r.URL.Path != "/api/issues" && r.URL.Path != "/api/issues/DEMO-1") {
+						t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+						http.NotFound(w, r)
+						return
+					}
+					var payload struct {
+						CustomFields []struct {
+							Name  string `json:"name"`
+							Value *User  `json:"value"`
+						} `json:"customFields"`
+					}
+					if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+						t.Errorf("decode request: %v", err)
+						w.WriteHeader(http.StatusBadRequest)
+						return
+					}
+					for _, field := range payload.CustomFields {
+						if field.Name == "Assignee" && field.Value != nil {
+							gotLogin = field.Value.Login
+						}
+					}
+					_, _ = w.Write([]byte(`{"id":"1-1","idReadable":"DEMO-1"}`))
+				}))
+				defer server.Close()
+				c := &Client{baseURL: server.URL, token: "test-token", httpClient: server.Client()}
+				var err error
+				switch operation {
+				case "create":
+					_, err = c.CreateIssue("DEMO", "Example", "", "", "", login)
+				case "update":
+					err = c.UpdateIssue("DEMO-1", "Example", "", "", "", login)
+				case "assign":
+					err = c.AssignIssue("DEMO-1", login)
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				if gotLogin != login {
+					t.Fatalf("submitted login = %q, want %q", gotLogin, login)
+				}
+			})
+		}
+	}
+}
+
 func TestUpdateIssueEstimation(t *testing.T) {
 	tests := []struct {
 		name     string

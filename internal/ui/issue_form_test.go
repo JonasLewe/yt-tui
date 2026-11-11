@@ -3,9 +3,51 @@ package ui
 import (
 	"strings"
 	"testing"
+	"yt-tui/internal/ytcli"
 
 	"github.com/charmbracelet/bubbletea"
 )
+
+func TestFormLoadsAssigneeLogin(t *testing.T) {
+	for _, mode := range []string{"edit", "clone"} {
+		for _, login := range []string{"JSmith42", ""} {
+			t.Run(mode+"/"+login, func(t *testing.T) {
+				m := newFormModel(nil, nil)
+				m.isEdit = mode == "edit"
+				m.isClone = mode == "clone"
+				issue := &ytcli.Issue{ID: "1-1", Summary: "Example"}
+				var assignee interface{}
+				if login != "" {
+					assignee = map[string]interface{}{"login": login, "fullName": "Jane Smith"}
+				}
+				issue.CustomFields = []ytcli.CustomField{{Name: "Assignee", Value: assignee}}
+				m, _ = m.Update(formDataLoadedMsg{issue: issue})
+				if got := m.assigneeInput.Value(); got != login {
+					t.Fatalf("assignee = %q, want API login %q", got, login)
+				}
+			})
+		}
+	}
+}
+
+func TestFormAssigneeSuggestionUsesLogin(t *testing.T) {
+	for _, key := range []tea.KeyType{tea.KeyTab, tea.KeyEnter} {
+		msg := tea.KeyMsg{Type: key}
+		t.Run(msg.String(), func(t *testing.T) {
+			m := newFormModel(nil, nil)
+			m.focusIndex = fieldAssignee
+			m.focusCurrent()
+			m.filteredUsers = []ytcli.User{{Login: "JSmith42", FullName: "Jane Smith"}}
+			m, _ = m.Update(msg)
+			if got := m.assigneeInput.Value(); got != "JSmith42" {
+				t.Fatalf("selected assignee = %q, want API login JSmith42", got)
+			}
+			if len(m.filteredUsers) != 0 {
+				t.Fatal("suggestions should close after selecting an assignee")
+			}
+		})
+	}
+}
 
 func TestFormDescriptionArrowKeysKeepContent(t *testing.T) {
 	m := newFormModel(nil, nil)

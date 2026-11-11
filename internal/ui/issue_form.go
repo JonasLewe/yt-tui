@@ -516,7 +516,7 @@ func (m formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 		m.descTextArea.SetValue(issue.Description)
 		m.setTypeByValue(issue.Type())
 		m.setPriorityByValue(issue.Priority())
-		m.assigneeInput.SetValue(issue.Assignee())
+		m.assigneeInput.SetValue(issue.AssigneeLogin())
 
 		if issue.Project != nil {
 			m.initialProjectCode = issue.Project.ShortName
@@ -721,7 +721,7 @@ func (m formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 				if msg.String() == "tab" {
 					// Tab selects current suggestion.
 					if m.userCursor >= 0 && m.userCursor < len(m.filteredUsers) {
-						selected := m.filteredUsers[m.userCursor].DisplayName()
+						selected := m.filteredUsers[m.userCursor].Login
 						m.assigneeInput.SetValue(selected)
 						m.assigneeInput.CursorEnd()
 						m.filteredUsers = nil
@@ -884,7 +884,7 @@ func (m formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 					return m, nil
 				case "tab", "enter":
 					if m.userCursor >= 0 && m.userCursor < len(m.filteredUsers) {
-						selected := m.filteredUsers[m.userCursor].DisplayName()
+						selected := m.filteredUsers[m.userCursor].Login
 						m.assigneeInput.SetValue(selected)
 						m.assigneeInput.CursorEnd()
 						m.filteredUsers = nil

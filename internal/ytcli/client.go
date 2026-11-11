@@ -1256,7 +1256,8 @@ func removeDiacritics(s string) string {
 	return result.String()
 }
 
-// normalizeAssignee converts assignee username input to lowercase, replaces non-standard/accented characters with standard ASCII equivalents, and replaces spaces with the configured separator (defaults to ".").
+// normalizeAssignee preserves explicit logins and normalizes manually entered
+// multi-word names using the configured separator (defaults to ".").
 // It also maps unassignment keywords like "unassigned", "unassign", "none", and "-" to an empty string.
 func (c *Client) normalizeAssignee(assignee string) string {
 	assignee = strings.TrimSpace(assignee)
@@ -1267,9 +1268,15 @@ func (c *Client) normalizeAssignee(assignee string) string {
 	if lower == "unassigned" || lower == "unassign" || lower == "none" || lower == "-" {
 		return ""
 	}
+	if lower == "me" {
+		return "me"
+	}
 	parts := strings.Fields(assignee)
 	if len(parts) == 0 {
 		return ""
+	}
+	if len(parts) == 1 {
+		return assignee
 	}
 	for i, part := range parts {
 		parts[i] = removeDiacritics(strings.ToLower(part))

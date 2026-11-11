@@ -311,6 +311,19 @@ func (i Issue) Assignee() string {
 	return "Unassigned"
 }
 
+// AssigneeLogin returns the assignee's API login, or an empty string if unassigned.
+func (i Issue) AssigneeLogin() string {
+	for _, cf := range i.CustomFields {
+		if cf.Name == "Assignee" {
+			if user, ok := cf.Value.(map[string]interface{}); ok {
+				login, _ := user["login"].(string)
+				return login
+			}
+		}
+	}
+	return ""
+}
+
 // CreatedTime formats the Created field as a readable time string.
 func (i Issue) CreatedTime() string {
 	if i.Created == 0 {

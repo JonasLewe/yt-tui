@@ -390,7 +390,7 @@ Example board action:
 
 ### 📝 Issue Form (Create / Clone / Edit)
 * `Tab` / `Shift+Tab` / `↑` / `↓`: Move focus between form fields (Project, Summary, Description, Type, Priority, Assignee). When the **Assignee** field is focused and suggestions are visible, `↑`/`↓` navigates the suggestion list instead.
-* On the **Assignee** field: a **live autocomplete dropdown** appears as you type, filtering project members and YouTrack users. Press `Tab` or `Enter` while a suggestion is highlighted to apply it. You can still type any name freely if the list is empty or the person is not listed.
+* On the **Assignee** field: a **live autocomplete dropdown** appears as you type, filtering project members and YouTrack users. Press `Tab` or `Enter` while a suggestion is highlighted to apply its actual YouTrack login. Editing and cloning also preserve the assignee's login, including capitalization and accented characters. You can still type any name freely if the list is empty or the person is not listed; manually entered multi-word names use the configured `username_separator`.
 * `←` / `→` (or `h` / `l`): Cycle options in dropdown fields (Project, Type, Priority).
 * `a`-`z` (on dropdown fields): Pressing the first letter of an option jumps directly to that choice.
 * `Ctrl+g` (on Description field): Open preferred external editor (using the `$EDITOR` environment variable) to write/edit the description.
