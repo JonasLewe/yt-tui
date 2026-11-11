@@ -168,7 +168,7 @@ func (m articleDetailModel) footer() string {
 	if m.renderMarkdown {
 		toggle = "Plain text"
 	}
-	help := "[Esc] Back  [↑↓/jk] Scroll  [PgUp/PgDn] Page  [e] Edit  [m] " + toggle + "  [r] Refresh  [?] Help  [q] Quit"
+	help := "[Esc] Back  [↑↓/jk] Scroll  [PgUp/PgDn] Page  [e] Edit  [m] " + toggle + "  [r] Refresh  [?] Help  " + quitHelp()
 	return StyleHelp.Render(wrapFooterHelp(help, max(1, m.width)))
 }
 

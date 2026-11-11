@@ -275,7 +275,7 @@ func (m welcomeModel) View() string {
 			StyleErrorMessage.Render(title),
 			m.err.Error(),
 			"",
-			StyleSubtext.Render("Press any key to continue or q to quit."),
+			StyleSubtext.Render("Press any key to continue or Ctrl+C to quit."),
 		)
 	} else if !m.loggedIn {
 		var builder strings.Builder
@@ -313,7 +313,7 @@ func (m welcomeModel) View() string {
 				}
 			}
 			builder.WriteString("\n")
-			builder.WriteString(StyleHelp.Render(" [↑/↓] Navigate  [Enter] Select  [Q/Ctrl+C] Quit "))
+			builder.WriteString(StyleHelp.Render(" [↑/↓] Navigate  [Enter] Select  " + quitHelp() + " "))
 			body = builder.String()
 		} else {
 			builder.WriteString(StyleTitle.Render(" Welcome to YouTrack TUI ") + "\n\n")

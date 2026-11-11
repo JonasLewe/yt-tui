@@ -286,7 +286,7 @@ func (m *articlesModel) rebuildRows(selected string) {
 }
 
 func (m articlesModel) footerLines() []string {
-	help := "[Esc] Back  [↑↓/jk] Navigate  [Enter] Read  [n] New  [/] Filter  [r] Refresh  [?] Help  [q] Quit"
+	help := "[Esc] Back  [↑↓/jk] Navigate  [Enter] Read  [n] New  [/] Filter  [r] Refresh  [?] Help  " + quitHelp()
 	if m.searchMode {
 		help = "[Enter/Esc] Finish filter  Type an article title or ID"
 	}

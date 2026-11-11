@@ -1347,7 +1347,7 @@ func (m issuesModel) View() string {
 		titleText := " Issues Sort "
 		title := StyleTitle.Render(titleText)
 
-		help := StyleHelp.Render(" [↑↓←→] Navigate  [Space] Select  [Enter] Save  [Esc] Cancel  [q] Quit ")
+		help := StyleHelp.Render(" [↑↓←→] Navigate  [Space] Select  [Enter] Save  [Esc] Cancel  " + quitHelp() + " ")
 
 		return lipgloss.JoinVertical(lipgloss.Left, title, box, "", help)
 	}
@@ -1415,7 +1415,7 @@ func (m issuesModel) View() string {
 		titleText := " Issues Filter "
 		title := StyleTitle.Render(titleText)
 
-		help := StyleHelp.Render(" [↑↓←→] Navigate  [Space] Toggle  [Enter] Save  [Esc] Cancel  [q] Quit ")
+		help := StyleHelp.Render(" [↑↓←→] Navigate  [Space] Toggle  [Enter] Save  [Esc] Cancel  " + quitHelp() + " ")
 
 		return lipgloss.JoinVertical(lipgloss.Left, title, box, "", help)
 	}
@@ -1498,9 +1498,9 @@ func (m issuesModel) View() string {
 	}
 
 	tableStr := m.table.View()
-	help := StyleHelp.Render(" [Esc] Back  [↑↓] Navigate  [Space] Action  [Enter] Detail  [/] Search  [F] Filter  [f] Favorite  [s] Sort  [n] New  [r] Refresh  [?] Help  [q] Quit ")
+	help := StyleHelp.Render(" [Esc] Back  [↑↓] Navigate  [Space] Action  [Enter] Detail  [/] Search  [F] Filter  [f] Favorite  [s] Sort  [n] New  [r] Refresh  [?] Help  " + quitHelp() + " ")
 	if m.projectCode != "" && m.projectCode != "ME" {
-		help = StyleHelp.Render(" [Esc] Back  [↑↓] Navigate  [Space] Action  [Enter] Detail  [K] Knowledge Base  [/] Search  [F] Filter  [f] Favorite  [s] Sort  [n] New  [r] Refresh  [?] Help  [q] Quit ")
+		help = StyleHelp.Render(" [Esc] Back  [↑↓] Navigate  [Space] Action  [Enter] Detail  [K] Knowledge Base  [/] Search  [F] Filter  [f] Favorite  [s] Sort  [n] New  [r] Refresh  [?] Help  " + quitHelp() + " ")
 	}
 
 	view := lipgloss.JoinVertical(lipgloss.Left, title, tableStr, searchBar, "", help)
