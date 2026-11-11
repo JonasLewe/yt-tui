@@ -4150,7 +4150,7 @@ func (m detailModel) openEditorCmd(content string, readOnly bool) tea.Cmd {
 	args := append(editorParts[1:], tempFile.Name())
 
 	c := exec.Command(bin, args...)
-	return tea.ExecProcess(c, func(err error) tea.Msg {
+	return execEditorProcess(c, func(err error) tea.Msg {
 		return editorFinishedMsg{tempPath: tempFile.Name(), err: err, readOnly: readOnly}
 	})
 }
