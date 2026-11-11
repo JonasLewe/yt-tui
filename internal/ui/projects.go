@@ -138,6 +138,13 @@ func (m projectsModel) Update(msg tea.Msg) (projectsModel, tea.Cmd) {
 					return pushStateMsg{state: stateForm, data: projectCode}
 				}
 			}
+		case "K":
+			if selected := m.table.SelectedRow(); len(selected) > 0 && selected[0] != "" && selected[0] != "ME" {
+				projectCode := selected[0]
+				return m, func() tea.Msg {
+					return pushStateMsg{state: stateArticles, data: projectCode}
+				}
+			}
 		case "r":
 			m.loading = true
 			m.err = nil
@@ -183,7 +190,7 @@ func (m projectsModel) View() string {
 
 	title := StyleTitle.Render(" YouTrack Projects ")
 	tableStr := m.table.View()
-	help := StyleHelp.Render(" [Esc] Back  [↑↓] Navigate  [Enter] View Issues  [n] New Issue in Project  [r] Refresh  [?] Help  [q] Quit ")
+	help := StyleHelp.Render(" [Esc] Back  [↑↓] Navigate  [Enter] View Issues  [K] Knowledge Base  [n] New Issue in Project  [r] Refresh  [?] Help  [q] Quit ")
 
 	return lipgloss.JoinVertical(lipgloss.Left, title, tableStr, "", help)
 }

@@ -4120,39 +4120,11 @@ func insertAtCursor(ti textinput.Model, text string) textinput.Model {
 }
 
 func (m detailModel) openEditorCmd(content string, readOnly bool) tea.Cmd {
-	editorParts := strings.Fields(os.Getenv("EDITOR"))
-	if len(editorParts) == 0 {
-		editorParts = []string{"vim"}
-	}
-
 	prefix := "yt-tui-comment-*.md"
 	if readOnly {
 		prefix = "yt-tui-view-*.md"
 	}
-
-	tempFile, err := os.CreateTemp("", prefix)
-	if err != nil {
-		return func() tea.Msg {
-			return editorFinishedMsg{err: err}
-		}
-	}
-
-	if _, err := tempFile.WriteString(content); err != nil {
-		tempFile.Close()
-		os.Remove(tempFile.Name())
-		return func() tea.Msg {
-			return editorFinishedMsg{err: err}
-		}
-	}
-	tempFile.Close()
-
-	bin := editorParts[0]
-	args := append(editorParts[1:], tempFile.Name())
-
-	c := exec.Command(bin, args...)
-	return tea.ExecProcess(c, func(err error) tea.Msg {
-		return editorFinishedMsg{tempPath: tempFile.Name(), err: err, readOnly: readOnly}
-	})
+	return openTextEditorCmd(content, prefix, readOnly)
 }
 
 var gitlabMRRegex = regexp.MustCompile(`\b([a-zA-Z0-9-._]+/[a-zA-Z0-9-._]+)!([0-9]+)\b`)

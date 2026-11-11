@@ -3,7 +3,6 @@ package ui
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -196,34 +195,7 @@ type editorFinishedMsg struct {
 }
 
 func (m formModel) openEditorCmd() tea.Cmd {
-	editorParts := strings.Fields(os.Getenv("EDITOR"))
-	if len(editorParts) == 0 {
-		editorParts = []string{"vim"}
-	}
-
-	tempFile, err := os.CreateTemp("", "yt-tui-desc-*.md")
-	if err != nil {
-		return func() tea.Msg {
-			return editorFinishedMsg{err: err}
-		}
-	}
-
-	if _, err := tempFile.WriteString(m.descTextArea.Value()); err != nil {
-		tempFile.Close()
-		os.Remove(tempFile.Name())
-		return func() tea.Msg {
-			return editorFinishedMsg{err: err}
-		}
-	}
-	tempFile.Close()
-
-	bin := editorParts[0]
-	args := append(editorParts[1:], tempFile.Name())
-
-	c := exec.Command(bin, args...)
-	return tea.ExecProcess(c, func(err error) tea.Msg {
-		return editorFinishedMsg{tempPath: tempFile.Name(), err: err}
-	})
+	return openTextEditorCmd(m.descTextArea.Value(), "yt-tui-desc-*.md", false)
 }
 
 func (m *formModel) setProjectByCode(code string) {
