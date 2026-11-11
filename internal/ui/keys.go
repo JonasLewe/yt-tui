@@ -96,8 +96,8 @@ var Keys = KeyMap{
 		key.WithHelp("?", "toggle help"),
 	),
 	Quit: key.NewBinding(
-		key.WithKeys("q", "ctrl+c"),
-		key.WithHelp("q", "quit"),
+		key.WithKeys("q", "Q", "ctrl+c"),
+		key.WithHelp("q/Q", "quit"),
 	),
 	SubmitForm: key.NewBinding(
 		key.WithKeys("ctrl+s"),

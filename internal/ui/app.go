@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"os"
 	"regexp"
 	"strings"
 	"yt-tui/internal/config"
@@ -294,24 +295,20 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmd := m.switchState(stateIssues, favView, false)
 			return m, cmd
 		}
-		if msg.String() == "q" {
-			canQuit := false
-			switch m.state {
-			case stateDashboard:
-				canQuit = true
-			case stateProjects:
-				canQuit = true
-			case stateBoards:
-				canQuit = true
-			case stateIssues:
-				canQuit = !m.issues.searchMode
-			case stateDetail:
-				canQuit = m.detail.mode == modeNormal
-			}
-			if canQuit {
+		if m.canUseQuitKeys() {
+			switch msg.String() {
+			case "q":
+				return m, quitOrHide()
+			case "Q":
 				return m, tea.Quit
 			}
 		}
+	case terminalHideRequestMsg:
+		return m, sendTerminalHide(os.Stdout)
+	case terminalHideErrorMsg:
+		m.status = "Could not hide Neovim window: " + msg.err.Error()
+		m.isStatusErr = true
+		return m, nil
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
@@ -791,6 +788,8 @@ func (m AppModel) renderHelpPopup() string {
 		formatSection("Global & Search", [][2]string{
 			{"S", "Global search"},
 			{"?", "Toggle help popup"},
+			{"q", quitKeyDescription()},
+			{"Q", "Quit (browsing)"},
 			{"ctrl+c", "Quit application"},
 		}),
 		"",

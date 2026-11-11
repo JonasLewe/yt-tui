@@ -2319,7 +2319,7 @@ func (m detailModel) footerHelp() string {
 	if m.boardsHasField && len(m.boardsOptions) > 0 {
 		helpStr += "  [B] Boards"
 	}
-	helpStr += fmt.Sprintf("  [e] %s  [C] Clone  [y] Yank  [o] Open%s%s%s%s  [?] Help  [q] Quit ", editAction, filterAction, mdAction, deleteAction, editorViewAction)
+	helpStr += fmt.Sprintf("  [e] %s  [C] Clone  [y] Yank  [o] Open%s%s%s%s  [?] Help  %s ", editAction, filterAction, mdAction, deleteAction, editorViewAction, quitHelp())
 	return StyleHelp.Render(wrapFooterHelp(helpStr, m.width-4))
 }
 

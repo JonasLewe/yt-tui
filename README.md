@@ -295,6 +295,7 @@ Example board action:
 ## ⌨️ Keyboard Controls & Navigation
 
 ### 🌐 Global Controls
+* `q` / `Q`: Quit while browsing. In the Neovim integration described below, lowercase `q` hides the float and uppercase `Q` quits the process. Forms, search inputs, action shortcuts, and nested editors keep their normal text/key behavior.
 * `Ctrl+C`: Force quit the application at any time.
 * `?`: Toggle the help popup from any screen (except when welcome screen is shown or a text input/textarea is active), showing all keyboard shortcuts split by views.
 * `S`: Open the global search popup from any screen (except when a text input or textarea is active).
@@ -305,11 +306,27 @@ Example board action:
   - Press `s` or `S` while navigating the list to focus back on the input field to search again.
   - Press `Esc` to close the popup.
 
+### Neovim floating-window integration
+
+A supporting Neovim launcher sets `YT_TUI_NVIM_HIDE=1` only for its terminal job.
+While browsing, `q` asks that launcher to hide the window without stopping yt-tui;
+`Q` fully quits. The current issue, pane, navigation history, and draft remain in
+the running process when hidden. Close an input or popup normally before using
+these browsing shortcuts. Inside an external editor, keys remain owned by that
+editor. `Ctrl+C` remains the application's unconditional quit key.
+
+This environment variable is a launcher integration marker, not a credential or
+saved configuration setting. Do not set it globally in your shell: ordinary
+terminals have no receiver for the hide request. Without it, both `q` and `Q`
+quit as usual. The launcher listens for the fixed OSC sequence
+`ESC ] 777 ; yt-tui ; hide BEL`; it must keep the process alive when handling it.
+No issue data or executable code is sent in this request.
+
 ### 🚪 Welcome / Login View
 * **Server Selection Mode** (when `servers` is configured):
   - `↑` / `↓` (or `k` / `j`): Navigate the server list.
   - `Enter`: Select and authenticate with the chosen YouTrack instance.
-  - `q` / `Ctrl+C`: Force quit the application.
+  - `q` / `Q` / `Ctrl+C`: Quit (lowercase `q` hides when launched by the Neovim integration).
 * **Credentials Entry Mode**:
   - `Tab` / `Shift+Tab`: Switch focus between YouTrack Base URL and API Token fields.
   - `Enter`: Save credentials and authenticate.
@@ -328,7 +345,7 @@ Example board action:
 * `b`: View the full **Agile Boards** screen.
 * `f`: Jump directly to your configured favorite tasks list (shows an error message if none is set yet).
 * `r`: Reload and refresh all dashboard data.
-* `q`: Exit application.
+* `q` / `Q`: Follow the global hide/quit behavior described above.
 
 ### 📂 Projects List View
 * `↑` / `↓` (or `k` / `j`): Navigate projects table.
