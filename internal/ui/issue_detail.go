@@ -2911,7 +2911,7 @@ func (m detailModel) View() string {
 		lipgloss.NewStyle().Foreground(lipgloss.Color(ColorCyan)).Bold(true).Render(issue.IDReadable),
 		issue.Summary,
 		StyleNormal.Foreground(lipgloss.Color(ColorYellow)).Render(issue.Priority()),
-		StyleNormal.Foreground(lipgloss.Color(ColorViolet)).Render(issue.Type()),
+		StyleNormal.Foreground(lipgloss.Color(ColorViolet)).Render(issueTypeLabel(*issue, m.cfg, "")),
 	)
 	repoVal := issue.ExtractStringField("Repo")
 	if repoVal == "" {

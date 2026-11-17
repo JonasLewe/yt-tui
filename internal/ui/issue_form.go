@@ -247,7 +247,7 @@ func (m formModel) getTypes() []string {
 		custom := m.cfg.GetCustomTypes(projectCode)
 		opts = append(opts, custom...)
 	} else {
-		opts = append(opts, "Bug", "Feature", "Task", "Epic", "Improvement", "Support")
+		opts = append(opts, config.DefaultTypes...)
 	}
 	opts = append(opts, m.customTypes...)
 	return opts

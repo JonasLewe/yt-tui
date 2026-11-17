@@ -339,8 +339,8 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.boards.width = childWidth
 		m.boards.height = childHeight
 
-		m.issues.width = childWidth
-		m.issues.height = childHeight
+		m.issues.width = max(1, m.width-4)
+		m.issues.height = max(1, childHeight)
 
 		m.detail.width = childWidth
 		m.detail.height = childHeight
@@ -589,8 +589,8 @@ func (m AppModel) View() string {
 		lipgloss.NewStyle().Foreground(lipgloss.Color(ColorCyan)).Render(" 🧭 "+breadcrumbStr),
 		statusPart,
 	)
-	if m.state == stateArticles || m.state == stateArticleDetail || m.state == stateArticleForm {
-		// Article viewports reserve one line for the breadcrumb, even when
+	if m.state == stateIssues || m.state == stateArticles || m.state == stateArticleDetail || m.state == stateArticleForm {
+		// Sized viewports reserve one line for the breadcrumb, even when
 		// opened through a project's issues list in a narrow terminal.
 		statusBarText = ansi.Truncate(statusBarText, max(1, m.width), "…")
 	}
@@ -644,6 +644,9 @@ func (m AppModel) View() string {
 		baseView = overlayLines(baseView, popup, x, y)
 	}
 
+	if m.state == stateIssues {
+		return boundIssueView(baseView, m.width, m.height)
+	}
 	return baseView
 }
 
@@ -903,7 +906,7 @@ func (m AppModel) renderHelpPopup() string {
 			{"Enter", "View issue details"},
 			{"K", "View project's knowledge base"},
 			{"/", "Search/filter phrase"},
-			{"F", "Filter state/priority"},
+			{"F", "Filter state/priority/type"},
 			{"f", "Toggle view favorite"},
 			{"s", "Sort issues list"},
 			{"n", "Create new issue"},

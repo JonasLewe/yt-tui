@@ -271,17 +271,9 @@ func (i Issue) Priority() string {
 	return "Normal"
 }
 
-// Type returns the type/category of the issue (Bug, Feature, etc.).
+// Type returns the type/category of the issue, or an empty string if unavailable.
 func (i Issue) Type() string {
-	val := i.ExtractStringField("Type")
-	if val != "" {
-		return val
-	}
-	val = i.ExtractStringField("Issue Type")
-	if val != "" {
-		return val
-	}
-	return "Task"
+	return i.TypeValue("")
 }
 
 // Assignee returns the assignee's display name.

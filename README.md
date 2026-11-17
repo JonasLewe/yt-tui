@@ -26,7 +26,7 @@ Styled out-of-the-box with a vibrant **Catppuccin Mocha** color palette, `yt-tui
 - **🎛️ Interactive Dashboard (Home)**: A split-pane interface showing **My Open Issues** (unresolved issues assigned to you) alongside your **Projects**. Seamlessly toggle focus with `Tab`.
 - **📂 Global Project Browser**: View and browse all accessible YouTrack projects in a clean tabular view.
 - **⚡ Asynchronous Paginated Loading**: Loads issues in the background without blocking the UI, giving you an instantly responsive view even on large codebases.
-- **🔍 Filter & Search**: Instantly query and filter issues in lists by readable ID or summary text using local filtering.
+- **🔍 Filter & Search**: Filter project issues by their actual YouTrack types, including multiple selected types, and save the selection per project. Type filters run on the server before pagination and the issue limit. Search loaded issues locally by readable ID or summary text.
 - **📝 Comprehensive Issue Detail**: Renders descriptions (with a toggle `m` to switch between plain text and formatted markdown, saved in configuration), assignees, priorities, states, and custom fields (including **Boards** and **Estimation**). Supports dedicated scrollable viewports for description, comments, linked issues, and attachments.
 - **📚 Project Knowledge Base**: Browse a project's article hierarchy, filter article titles and IDs, and read articles in a scrollable Markdown or plain-text view. Create and edit articles using the same form controls and external editor as issues. Press `K` on a project or in its issues list.
 - **🔄 Complete Issue Lifecycle**:
@@ -160,9 +160,9 @@ If you select one of the configured servers, `yt-tui` will authenticate using th
   "token": "",
   "page_size": 20,
   "max_issues": 500,
-  "fields": ["ID", "Summary", "State", "Priority", "Assignee"],
+  "fields": ["ID", "Type", "Summary", "State", "Priority", "Assignee"],
   "custom_types": {
-    "default": ["Bug", "Task", "Ops", "Initiative", "Epic"],
+    "default": ["Bug", "Task", "Story", "Ops", "Initiative", "Epic"],
     "MTEL": ["Bug", "Feature", "Task"]
   },
   "custom_priorities": {
@@ -194,7 +194,9 @@ If you select one of the configured servers, `yt-tui` will authenticate using th
 | `username_separator`    | String           | `""` (defaults to `.`)                                                           | The separator string used to merge first and last names when normalizing assignee inputs (e.g., `_` for `First_Last` or `.` for `first.last`). Can be set globally or per-server.                                                                                                                                                                                                                        |
 | `page_size`             | Integer          | `20`                                                                             | The number of issues requested per query page. Larger page sizes fetch more records at once, while smaller sizes load background pages in quicker increments.                                                                                                                                                                                                                                            |
 | `max_issues`            | Integer          | `500`                                                                            | The maximum number of issues to load for a project list. Once this limit is reached, the app will stop fetching new pages of issues to prevent performance degradation on massive projects.                                                                                                                                                                                                              |
-| `fields`                | Array of Strings | `["ID", "Summary", "State", "Priority", "Assignee"]`                             | The list of columns/fields to display on the tasks list. Supports standard fields (`ID`, `Summary`, `State`, `Priority`, `Assignee`, `Type`, `Updated`, `Updater`, `Created`, `Creator`/`Reporter`) as well as custom field names.                                                                                                                                                                       |
+| `fields` | Array of Strings | `["ID", "Type", "Summary", "State", "Priority", "Assignee"]` | Columns in the issues list. Supports `ID`, `Type`, `Summary`, `State`, `Priority`, `Assignee`, `Updated`, `Updater`, `Created`, `Creator`/`Reporter`, and custom field names. Existing configurations retain their columns; add `"Type"` to display it. Missing type values appear as `—`. |
+| `filtered_types` | Object | Unset (all types) | Saved type selections per project ShortName or ID, with an optional `default` fallback; for example `{"APP": ["Bug", "Story"], "ALL": []}`. A project entry containing `[]` means all types and overrides any default restriction. Values are actual YouTrack type names, selected through `F` in a project issues list. |
+| `type_field_name` | Object | Unset (automatic) | Maps project ShortName or ID to its issue type custom field name, with an optional `default` fallback; for example `{"APP": "Ticket Type", "default": "Category"}`. Without an override, the app detects `Type` or `Issue Type`. |
 | `custom_types`          | Object           | `{}` (empty)                                                                     | Custom list of issue type options configured per project (keyed by project ShortName or ID, e.g. `{"MTEL": ["Bug", "Task"], "default": ["Bug", "Feature"]}`) to populate the creation dropdown. Supports legacy array format as a fallback.                                                                                                                                                              |
 | `custom_priorities`     | Object           | `{}` (empty)                                                                     | Custom list of issue priority options configured per project (keyed by project ShortName or ID, e.g. `{"MTEL": ["Minor", "Normal"], "default": ["Minor", "Major"]}`) to populate the creation dropdown. Supports legacy array format as a fallback.                                                                                                                                                      |
 | `custom_states`         | Object           | `{}` (empty)                                                                     | Custom list of issue state transition options configured per project (keyed by project ShortName or ID, e.g. `{"MTEL": ["New", "In Dev"], "default": ["Open", "Closed"]}`) to populate the state selection modal. Supports legacy array format as a fallback.                                                                                                                                            |
@@ -407,11 +409,19 @@ Knowledge Base access uses the current connection and its article permissions. E
 * `/`: Activate search/filter mode. Type keywords to filter issues by summary/ID. Press `Esc` or `Enter` to close search mode.
 * `Space`: Open the custom quick Actions popup to quickly update the selected issue using a templated sequence (either select via list or hit shortcut number).
 * `f`: Toggle the current tasks list view as your favorite view (adds/removes a yellow star `★` in the header and saves to config).
-* `F`: Open the State & Priority filter panel. Use arrow keys/hjkl to navigate, Space to toggle checkboxes, Enter to save, and Esc to cancel.
+* `F`: Open the filter panel for State and Priority, plus **Type** in a project-specific issues list. Use arrow keys/hjkl to navigate, Tab/Shift+Tab to switch sections, Space to toggle checkboxes, Enter to save, and Esc to cancel. Choose one or several project types, or **All types** to clear the type restriction; the selection is saved per project. Narrow terminals show one filter section at a time.
 * `s`: Open the Column & Direction sort panel. Use arrow keys/hjkl to navigate, Space to select choices, Enter to save, and Esc to cancel.
 * `n`: Create a new issue in the current project context.
 * `r`: Clear cache and force reload issues list.
 * `Esc` / `Backspace`: Go back to the dashboard/previous screen.
+
+The Type filter obtains its choices from the project's YouTrack field configuration, including archived types that existing issues can still use; it does not use a fixed list of Bug, Story, Task, or Epic. Saving a type selection reloads issues using a server-side query across the whole project, before pagination and `max_issues` apply. The text search and State/Priority filters further narrow the loaded rows. The list shows visible and loaded counts and indicates when the configured issue cap is reached; these counts are not a total of all matching issues on the server.
+
+If the project's type settings cannot be read, the panel shows only saved or observed values and reports that its options are unavailable. A restricted type filter is not applied until these settings can be read, and an existing restriction is never silently removed. Close the panel and press `r` to retry, or choose **All types** to browse without a type restriction.
+
+New configurations show the **Type** column after ID. Column widths adapt to the terminal while preserving your configured column order. Existing configurations keep their saved `fields` list; add `"Type"` in `~/.config/yt-tui/config.json` to show it. An issue with no type is shown as `—`. If your project uses another field name, configure `type_field_name` for that project. If `filtered_types` is absent, all types are included; an explicit empty project selection also includes all types even if a `default` restriction exists.
+
+For `filtered_types` and `type_field_name`, a project ShortName entry takes precedence over its numeric project ID entry, followed by `default`. Saving the type filter uses the project's ShortName and removes its older ID entry so both ways of opening the project use the same selection.
 
 ### 🔍 Issue Detail View
 * `0` / `1` / `2` / `3`: Jump directly to **[0] Description**, **[1] Comments**, **[2] Links**, or **[3] Attachments**. The numbers stay the same in full-view mode. These shortcuts apply while browsing; numbers retain their normal meaning in text inputs and action popups.

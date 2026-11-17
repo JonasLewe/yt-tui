@@ -26,9 +26,11 @@ func TestIssuesModel_MaxIssuesLimit(t *testing.T) {
 
 	var cmd tea.Cmd
 	m, cmd = m.Update(issuesDataMsg{
-		projectCode: "TEST",
-		skip:        0,
-		issues:      issues1,
+		context:   m.cacheKey(),
+		requestID: m.requestID,
+		limit:     m.pageSize,
+		skip:      0,
+		issues:    issues1,
 	})
 
 	if len(m.issues) != 2 {
@@ -48,9 +50,11 @@ func TestIssuesModel_MaxIssuesLimit(t *testing.T) {
 	}
 
 	m, cmd = m.Update(issuesDataMsg{
-		projectCode: "TEST",
-		skip:        2,
-		issues:      issues2,
+		context:   m.cacheKey(),
+		requestID: m.requestID,
+		limit:     m.pageSize,
+		skip:      2,
+		issues:    issues2,
 	})
 
 	if len(m.issues) != 4 {
@@ -64,7 +68,7 @@ func TestIssuesModel_MaxIssuesLimit(t *testing.T) {
 	}
 
 	// Check cache
-	cache, exists := m.cache["TEST"]
+	cache, exists := m.cache[m.cacheKey()]
 	if !exists {
 		t.Fatal("expected cache to exist for TEST project")
 	}

@@ -165,6 +165,8 @@ type Config struct {
 	WorkTypes           []string              `json:"work_types"`
 	FilteredStates      FilteredStatesMap     `json:"filtered_states"`
 	FilteredPriorities  FilteredPrioritiesMap `json:"filtered_priorities"`
+	FilteredTypes       map[string][]string   `json:"filtered_types,omitempty"`
+	TypeFieldName       map[string]string     `json:"type_field_name,omitempty"`
 	SortColumn          string                `json:"sort_column"`
 	SortDirection       string                `json:"sort_direction"`
 	FavoriteView        string                `json:"favorite_view,omitempty"`
@@ -239,6 +241,20 @@ func (cfg *Config) GetBoardsFieldName(projectCode string) string {
 	return ""
 }
 
+// GetTypeFieldName returns the configured issue type field name for a project.
+// An empty result lets the caller detect the standard Type or Issue Type field.
+func (cfg *Config) GetTypeFieldName(projectCodes ...string) string {
+	if cfg == nil {
+		return ""
+	}
+	for _, projectCode := range projectCodes {
+		if name := cfg.TypeFieldName[projectCode]; projectCode != "" && name != "" {
+			return name
+		}
+	}
+	return cfg.TypeFieldName["default"]
+}
+
 // GetCustomTypes returns the list of custom types for the given project.
 // If projectCode is empty or not found, it falls back to the "default" key,
 // and finally to config.DefaultTypes.
@@ -293,6 +309,20 @@ func (cfg *Config) GetFilteredPriorities(projectCode string) []string {
 	return cfg.GetCustomPriorities(projectCode)
 }
 
+// GetFilteredTypes returns selected issue types, or no restriction if empty.
+// A project entry overrides the default even when its list is empty.
+func (cfg *Config) GetFilteredTypes(projectCodes ...string) []string {
+	if cfg == nil {
+		return nil
+	}
+	for _, projectCode := range projectCodes {
+		if types, ok := cfg.FilteredTypes[projectCode]; projectCode != "" && ok {
+			return types
+		}
+	}
+	return cfg.FilteredTypes["default"]
+}
+
 // GetActions returns the list of custom actions for the given project.
 // If projectCode is empty or not found, it falls back to the "default" key,
 // and finally to nil.
@@ -309,6 +339,21 @@ func (cfg *Config) GetActions(projectCode string) []ActionConfig {
 		return actions
 	}
 	return nil
+}
+
+// SetFilteredTypes saves the type selection for a project, using an empty list
+// to explicitly select all types even when a default filter is configured.
+func (cfg *Config) SetFilteredTypes(projectCode string, types []string) {
+	if cfg == nil {
+		return
+	}
+	if cfg.FilteredTypes == nil {
+		cfg.FilteredTypes = make(map[string][]string)
+	}
+	if projectCode == "" {
+		projectCode = "default"
+	}
+	cfg.FilteredTypes[projectCode] = append([]string{}, types...)
 }
 
 // SetFilteredStates sets the filtered states for the given project.
@@ -406,8 +451,8 @@ const (
 )
 
 var (
-	DefaultFields     = []string{"ID", "Summary", "State", "Priority", "Assignee"}
-	DefaultTypes      = []string{"Bug", "Feature", "Task", "Epic", "Improvement", "Support"}
+	DefaultFields     = []string{"ID", "Type", "Summary", "State", "Priority", "Assignee"}
+	DefaultTypes      = []string{"Bug", "Feature", "Task", "Story", "Epic", "Improvement", "Support"}
 	DefaultPriorities = []string{"Minor", "Normal", "Major", "Critical", "Show-stopper"}
 	DefaultStates     = []string{"Open", "In Progress", "Verified", "Done", "Duplicate", "Won't fix", "Incomplete"}
 	DefaultWorkTypes  = []string{"Development", "Documentation", "Implementation", "Investigation", "Testing"}

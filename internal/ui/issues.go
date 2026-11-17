@@ -14,10 +14,15 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+type issuesCacheKey struct {
+	serverURL, projectCode, query, agileID, sprintID string
+}
+
 type projectCache struct {
-	issues    []ytcli.Issue
-	skip      int
-	loadedAll bool
+	issues       []ytcli.Issue
+	skip         int
+	loadedAll    bool
+	limitReached bool
 }
 
 type issueField struct {
@@ -40,9 +45,8 @@ type issuesModel struct {
 	searchInput         textinput.Model
 	searchMode          bool
 	filterMode          bool
-	tempStates          map[string]bool
-	tempPriorities      map[string]bool
-	filterCursor        int
+	filterPanel         issuesFilterPanel
+	filterError         string
 	loading             bool
 	err                 error
 	spinner             spinner.Model
@@ -52,7 +56,15 @@ type issuesModel struct {
 	pageSize            int
 	maxIssues           int
 	loadedAll           bool
-	cache               map[string]projectCache
+	cache               map[issuesCacheKey]projectCache
+	serverURL           string
+	requestID           uint64
+	serverQuery         string
+	selectedTypes       []string
+	typeInfo            ytcli.IssueTypeInfo
+	typeInfoErr         error
+	typeInfoCache       map[issueTypesKey]ytcli.IssueTypeInfo
+	limitReached        bool
 	fields              []issueField
 	visibleIssueIDs     []string
 	lastSelectedIssueID string
@@ -77,7 +89,9 @@ func newIssuesModel(client *ytcli.Client, cfg *config.Config) issuesModel {
 	var fieldNames []string
 
 	if cfg != nil {
-		pageSize = cfg.PageSize
+		if cfg.PageSize > 0 {
+			pageSize = cfg.PageSize
+		}
 		maxIssues = cfg.MaxIssues
 		fieldNames = cfg.Fields
 	}
@@ -118,7 +132,7 @@ func newIssuesModel(client *ytcli.Client, cfg *config.Config) issuesModel {
 		case "type":
 			title = "Type"
 			width = 12
-			valueFn = func(i ytcli.Issue) string { return i.Type() }
+			valueFn = func(i ytcli.Issue) string { return issueTypeLabel(i, cfg, "") }
 		case "updated":
 			title = "Updated"
 			width = 20
@@ -180,74 +194,58 @@ func newIssuesModel(client *ytcli.Client, cfg *config.Config) issuesModel {
 	ti.Focus()
 
 	m := issuesModel{
-		client:      client,
-		cfg:         cfg,
-		table:       t,
-		searchInput: ti,
-		loading:     true,
-		spinner:     s,
-		pageSize:    pageSize,
-		maxIssues:   maxIssues,
-		skip:        0,
-		cache:       make(map[string]projectCache),
-		fields:      fields,
+		client:        client,
+		cfg:           cfg,
+		table:         t,
+		searchInput:   ti,
+		loading:       true,
+		spinner:       s,
+		pageSize:      pageSize,
+		maxIssues:     maxIssues,
+		skip:          0,
+		cache:         make(map[issuesCacheKey]projectCache),
+		typeInfoCache: make(map[issueTypesKey]ytcli.IssueTypeInfo),
+		fields:        fields,
 	}
 	m.updateTableColumns()
 	return m
 }
 
 type issuesDataMsg struct {
-	projectCode string
-	query       string
-	skip        int
+	context     issuesCacheKey
+	requestID   uint64
+	skip, limit int
 	issues      []ytcli.Issue
 	err         error
 }
 
-func (m *issuesModel) cacheKey() string {
-	if m.projectCode != "" {
-		return m.projectCode
-	}
-	if m.sprintID != "" {
-		return "sprint:" + m.sprintID
-	}
-	if m.query != "" {
-		return "query:" + m.query
-	}
-	return "all"
+func (m *issuesModel) cacheKey() issuesCacheKey {
+	return issuesCacheKey{m.serverURL, m.projectCode, m.serverQuery, m.agileID, m.sprintID}
 }
 
 func (m issuesModel) loadIssuesCmd() tea.Cmd {
-	if m.sprintID != "" && m.agileID != "" {
-		agileID := m.agileID
-		sprintID := m.sprintID
-		query := m.query
+	msg := issuesDataMsg{context: m.cacheKey(), requestID: m.requestID, skip: m.skip, limit: m.pageSize}
+	if m.maxIssues > 0 && m.sprintID == "" {
+		msg.limit = min(msg.limit, m.maxIssues-len(m.issues))
+	}
+	if msg.limit <= 0 {
+		return nil
+	}
+	if m.client == nil {
 		return func() tea.Msg {
-			issues, err := m.client.ListSprintIssues(agileID, sprintID)
-			return issuesDataMsg{
-				projectCode: "",
-				query:       query,
-				skip:        0,
-				issues:      issues,
-				err:         err,
-			}
+			msg.err = fmt.Errorf("YouTrack client is unavailable")
+			return msg
 		}
 	}
-
-	projectCode := m.projectCode
-	query := m.query
-	skip := m.skip
-	pageSize := m.pageSize
-
+	// Requests use a snapshot so switching accounts cannot change an in-flight request.
+	client := *m.client
 	return func() tea.Msg {
-		issues, err := m.client.ListIssues(projectCode, query, pageSize, skip)
-		return issuesDataMsg{
-			projectCode: projectCode,
-			query:       query,
-			skip:        skip,
-			issues:      issues,
-			err:         err,
+		if msg.context.sprintID != "" {
+			msg.issues, msg.err = client.ListSprintIssues(msg.context.agileID, msg.context.sprintID)
+		} else {
+			msg.issues, msg.err = client.ListIssues(msg.context.projectCode, msg.context.query, msg.limit, msg.skip)
 		}
+		return msg
 	}
 }
 
@@ -487,6 +485,10 @@ func (m *issuesModel) compareIssues(a, b ytcli.Issue, fieldTitle string) int {
 	}
 	valA = valueFn(a)
 	valB = valueFn(b)
+	if strings.EqualFold(fieldTitle, "Type") {
+		valA = issueTypeLabel(a, m.cfg, m.projectCode)
+		valB = issueTypeLabel(b, m.cfg, m.projectCode)
+	}
 
 	titleLower := strings.ToLower(fieldTitle)
 	if titleLower == "id" {
@@ -562,7 +564,8 @@ func (m *issuesModel) sortIssues() {
 
 func (m *issuesModel) updateTableColumns() {
 	var columns []table.Column
-	for _, f := range m.fields {
+	widths := issueColumnWidths(m.fields, m.width)
+	for i, f := range m.fields {
 		title := f.title
 		if m.cfg != nil && strings.EqualFold(f.title, m.cfg.SortColumn) {
 			if strings.EqualFold(m.cfg.SortDirection, "desc") {
@@ -573,10 +576,13 @@ func (m *issuesModel) updateTableColumns() {
 		}
 		columns = append(columns, table.Column{
 			Title: title,
-			Width: f.width,
+			Width: widths[i],
 		})
 	}
 	m.table.SetColumns(columns)
+	if m.width > 0 {
+		m.table.SetWidth(m.width)
+	}
 }
 
 func (m *issuesModel) updateTableRows() {
@@ -593,7 +599,11 @@ func (m *issuesModel) updateTableRows() {
 
 				row := table.Row{}
 				for _, f := range m.fields {
-					row = append(row, f.value(issue))
+					value := f.value(issue)
+					if f.title == "Type" {
+						value = issueTypeLabel(issue, m.cfg, m.projectCode)
+					}
+					row = append(row, value)
 				}
 				rows = append(rows, row)
 				m.visibleIssueIDs = append(m.visibleIssueIDs, issue.IDReadable)
@@ -604,18 +614,34 @@ func (m *issuesModel) updateTableRows() {
 }
 
 func (m *issuesModel) updateTableHeight() {
-	tableHeight := m.height - 6
+	tableHeight := m.height - 7 - strings.Count(m.filterSummary(), "\n") - strings.Count(m.issueHelp(), "\n")
 	if m.searchMode {
-		tableHeight = m.height - 10
+		tableHeight -= 4
 	}
-	if tableHeight < 0 {
-		tableHeight = 0
+	if tableHeight < 2 {
+		tableHeight = 2 // Bubbles subtracts the two header rows from this height.
 	}
 	m.table.SetHeight(tableHeight)
 }
 
 func (m *issuesModel) invalidateCache(projectCode string) {
-	delete(m.cache, projectCode)
+	// Global actions may affect any project. A stale typed view must never hide
+	// a changed issue when the user returns from another context.
+	if projectCode == "" {
+		clear(m.cache)
+		return
+	}
+	aliases := map[string]bool{projectCode: true}
+	for _, info := range m.typeInfoCache {
+		if info.Project.ID == projectCode || info.Project.ShortName == projectCode {
+			aliases[info.Project.ID], aliases[info.Project.ShortName] = true, true
+		}
+	}
+	for key := range m.cache {
+		if aliases[key.projectCode] || key.projectCode == "" {
+			delete(m.cache, key)
+		}
+	}
 }
 
 func (m *issuesModel) restoreCursor() {
@@ -703,116 +729,83 @@ func (m *issuesModel) initProject(projectCode string, isBack bool) tea.Cmd {
 }
 
 func (m *issuesModel) initContext(projectCode string, query string, isBack bool) tea.Cmd {
-	m.projectCode = projectCode
-	m.query = query
-	m.agileID = ""
-	m.sprintID = ""
-	m.boardName = ""
-	m.sprintName = ""
-
+	m.projectCode, m.query = projectCode, query
+	m.agileID, m.sprintID, m.boardName, m.sprintName = "", "", "", ""
+	m.filterMode, m.sortMode, m.actionMode = false, false, false
 	if strings.HasPrefix(query, "sprint:") {
 		parts := strings.SplitN(query, ":", 5)
-		if len(parts) >= 5 {
-			m.agileID = parts[1]
-			m.sprintID = parts[2]
-			m.boardName = parts[3]
-			m.sprintName = parts[4]
+		if len(parts) == 5 {
+			m.agileID, m.sprintID, m.boardName, m.sprintName = parts[1], parts[2], parts[3], parts[4]
 		}
 	}
-
 	if !isBack {
 		m.searchInput.SetValue("")
 		m.searchMode = false
 		m.lastSelectedIssueID = ""
 	}
-
-	key := m.cacheKey()
-	if cache, exists := m.cache[key]; exists {
-		m.issues = cache.issues
-		m.skip = cache.skip
-		m.loadedAll = cache.loadedAll
-		m.loading = false
-		m.err = nil
-
-		m.updateTableRows()
-		if isBack {
-			m.restoreCursor()
-		} else {
-			if len(m.table.Rows()) > 0 {
-				m.table.SetCursor(0)
-			}
-		}
-		if !m.loadedAll {
-			if m.maxIssues > 0 && len(m.issues) >= m.maxIssues {
-				m.loadedAll = true
-				return nil
-			}
-			m.skip = cache.skip + m.pageSize
-			return m.loadIssuesCmd()
-		}
-		return nil
-	}
-
-	m.issues = nil
-	m.skip = 0
-	m.loadedAll = false
-	m.loading = true
-	m.err = nil
-	return m.loadIssuesCmd()
+	return m.startContext(false)
 }
 
-func (m issuesModel) Init() tea.Cmd {
-	return tea.Batch(m.spinner.Tick, m.loadIssuesCmd())
+func (m *issuesModel) Init() tea.Cmd {
+	return tea.Batch(m.spinner.Tick, m.startContext(false))
 }
 
 func (m issuesModel) Update(msg tea.Msg) (issuesModel, tea.Cmd) {
 	m.updateTableHeight()
 	var cmd tea.Cmd
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.updateTableColumns()
+		m.updateTableHeight()
+		return m, nil
+
 	case spinner.TickMsg:
 		m.spinner, cmd = m.spinner.Update(msg)
 		return m, cmd
 
-	case issuesDataMsg:
-		// Discard stale message from previous project.
-		if msg.projectCode != m.projectCode || msg.query != m.query {
+	case issueTypesMsg:
+		if msg.requestID != m.requestID || msg.key != m.typeKey() || !m.sameServer() {
 			return m, nil
 		}
+		m.typeInfo, m.typeInfoErr = msg.info, msg.err
+		if msg.err == nil {
+			m.typeInfoCache[msg.key] = msg.info
+		}
+		if m.filterMode && len(m.filterPanel.sections) == 3 {
+			m.filterPanel.sections[2].Options = m.availableTypes()
+		}
+		return m, m.restoreOrLoadIssues()
 
+	case issuesDataMsg:
+		if msg.context != m.cacheKey() || msg.requestID != m.requestID || msg.skip != m.skip || !m.sameServer() {
+			return m, nil
+		}
+		m.loading = false
 		if msg.err != nil {
-			m.loading = false
 			m.err = msg.err
 			return m, nil
 		}
-
-		m.loading = false
-
 		if msg.skip == 0 {
 			m.issues = msg.issues
 		} else {
 			m.issues = append(m.issues, msg.issues...)
 		}
-
-		limitReached := m.maxIssues > 0 && len(m.issues) >= m.maxIssues
-
-		// Update cache for this context
-		m.cache[m.cacheKey()] = projectCache{
-			issues:    m.issues,
-			skip:      msg.skip,
-			loadedAll: len(msg.issues) < m.pageSize || limitReached,
+		m.limitReached = m.maxIssues > 0 && len(m.issues) >= m.maxIssues && m.sprintID == ""
+		if m.limitReached && len(m.issues) > m.maxIssues {
+			m.issues = m.issues[:m.maxIssues]
 		}
-
+		m.skip = msg.skip + len(msg.issues)
+		m.loadedAll = len(msg.issues) < msg.limit || m.limitReached || m.sprintID != ""
+		m.cache[m.cacheKey()] = projectCache{
+			issues: append([]ytcli.Issue(nil), m.issues...), skip: m.skip,
+			loadedAll: m.loadedAll, limitReached: m.limitReached,
+		}
 		m.updateTableRows()
 		if msg.skip == 0 {
 			m.restoreCursor()
 		}
-
-		if len(msg.issues) == m.pageSize && !limitReached {
-			m.skip = msg.skip + m.pageSize
-			m.loadedAll = false
+		if !m.loadedAll {
 			return m, m.loadIssuesCmd()
-		} else {
-			m.loadedAll = true
 		}
 		return m, nil
 
@@ -824,14 +817,8 @@ func (m issuesModel) Update(msg tea.Msg) (issuesModel, tea.Cmd) {
 			m.err = msg.err
 			return m, nil
 		}
-		// Refresh issues list
-		m.loading = true
-		m.err = nil
-		m.skip = 0
-		m.loadedAll = false
-		m.issues = nil
-		delete(m.cache, m.cacheKey())
-		return m, m.loadIssuesCmd()
+		m.invalidateCache(m.projectCode)
+		return m, m.startContext(false)
 
 	case tea.KeyMsg:
 		if m.actionMode && m.cfg != nil {
@@ -973,165 +960,16 @@ func (m issuesModel) Update(msg tea.Msg) (issuesModel, tea.Cmd) {
 		}
 
 		if m.filterMode {
-			numStates := 0
-			numPriorities := 0
-			if m.cfg != nil {
-				numStates = len(m.getAvailableStates())
-				numPriorities = len(m.getAvailablePriorities())
-			}
-			totalOptions := numStates + numPriorities
-
 			switch msg.String() {
 			case "esc":
 				m.filterMode = false
-				return m, nil
-			case "q":
-				return m, tea.Quit
-			case "up", "k":
-				if m.filterCursor < numStates {
-					m.filterCursor--
-					if m.filterCursor < 0 {
-						m.filterCursor = numStates - 1
-					}
-				} else {
-					m.filterCursor--
-					if m.filterCursor < numStates {
-						m.filterCursor = totalOptions - 1
-					}
-				}
-				return m, nil
-			case "down", "j":
-				if m.filterCursor < numStates {
-					m.filterCursor++
-					if m.filterCursor >= numStates {
-						m.filterCursor = 0
-					}
-				} else {
-					m.filterCursor++
-					if m.filterCursor >= totalOptions {
-						m.filterCursor = numStates
-					}
-				}
-				return m, nil
-			case "left", "h":
-				if m.filterCursor >= numStates {
-					// Move from priorities to states
-					row := m.filterCursor - numStates
-					if row < numStates {
-						m.filterCursor = row
-					} else {
-						m.filterCursor = numStates - 1
-					}
-				}
-				return m, nil
-			case "right", "l":
-				if m.filterCursor < numStates {
-					// Move from states to priorities
-					row := m.filterCursor
-					if row < numPriorities {
-						m.filterCursor = numStates + row
-					} else {
-						m.filterCursor = totalOptions - 1
-					}
-				}
-				return m, nil
+				m.filterError = ""
 			case " ":
-				if m.cfg != nil {
-					states := m.getAvailableStates()
-					if m.filterCursor < numStates {
-						stateName := states[m.filterCursor]
-						m.tempStates[stateName] = !m.tempStates[stateName]
-					} else {
-						priorities := m.getAvailablePriorities()
-						priorityName := priorities[m.filterCursor-numStates]
-						m.tempPriorities[priorityName] = !m.tempPriorities[priorityName]
-					}
-				}
-				return m, nil
+				m.filterPanel.toggle()
 			case "enter":
-				if m.cfg != nil {
-					projCode := m.effectiveProjectCode()
-					// Build a map of current filtered states to preserve those not displayed
-					currentFiltered := make(map[string]bool)
-					for _, fs := range m.cfg.GetFilteredStates(projCode) {
-						currentFiltered[fs] = true
-					}
-
-					// Update visibility for displayed states
-					displayedStates := m.getAvailableStates()
-					for _, s := range displayedStates {
-						currentFiltered[s] = m.tempStates[s]
-					}
-
-					// Rebuild FilteredStates preserving order
-					newStates := []string{}
-					// Go through configured custom states to keep order
-					for _, statesList := range m.cfg.CustomStates {
-						for _, s := range statesList {
-							if currentFiltered[s] {
-								newStates = append(newStates, s)
-								delete(currentFiltered, s)
-							}
-						}
-					}
-					// Then default states
-					for _, s := range config.DefaultStates {
-						if currentFiltered[s] {
-							newStates = append(newStates, s)
-							delete(currentFiltered, s)
-						}
-					}
-					// Any remaining states
-					for s, val := range currentFiltered {
-						if val {
-							newStates = append(newStates, s)
-						}
-					}
-
-					// Build a map of current filtered priorities to preserve those not displayed
-					currentFilteredP := make(map[string]bool)
-					for _, fp := range m.cfg.GetFilteredPriorities(projCode) {
-						currentFilteredP[fp] = true
-					}
-
-					// Update visibility for displayed priorities
-					displayedPriorities := m.getAvailablePriorities()
-					for _, p := range displayedPriorities {
-						currentFilteredP[p] = m.tempPriorities[p]
-					}
-
-					// Rebuild FilteredPriorities preserving order
-					newPriorities := []string{}
-					// Go through configured custom priorities to keep order
-					for _, prioritiesList := range m.cfg.CustomPriorities {
-						for _, p := range prioritiesList {
-							if currentFilteredP[p] {
-								newPriorities = append(newPriorities, p)
-								delete(currentFilteredP, p)
-							}
-						}
-					}
-					// Then default priorities
-					for _, p := range config.DefaultPriorities {
-						if currentFilteredP[p] {
-							newPriorities = append(newPriorities, p)
-							delete(currentFilteredP, p)
-						}
-					}
-					// Any remaining priorities
-					for p, val := range currentFilteredP {
-						if val {
-							newPriorities = append(newPriorities, p)
-						}
-					}
-
-					m.cfg.SetFilteredStates(projCode, newStates)
-					m.cfg.SetFilteredPriorities(projCode, newPriorities)
-					_ = config.SaveConfig(m.cfg)
-					m.updateTableRows()
-				}
-				m.filterMode = false
-				return m, nil
+				return m, m.saveFilters()
+			default:
+				m.filterPanel.move(msg.String())
 			}
 			return m, nil
 		}
@@ -1153,7 +991,7 @@ func (m issuesModel) Update(msg tea.Msg) (issuesModel, tea.Cmd) {
 			return m, cmd
 		}
 
-		if m.loading {
+		if m.loading && msg.String() != "F" && msg.String() != "r" && msg.String() != "esc" && msg.String() != "backspace" {
 			return m, nil
 		}
 
@@ -1198,19 +1036,7 @@ func (m issuesModel) Update(msg tea.Msg) (issuesModel, tea.Cmd) {
 			}
 			return m, nil
 		case "F":
-			if m.cfg != nil {
-				m.filterMode = true
-				m.filterCursor = 0
-				m.tempStates = make(map[string]bool)
-				m.tempPriorities = make(map[string]bool)
-				projCode := m.effectiveProjectCode()
-				for _, s := range m.cfg.GetFilteredStates(projCode) {
-					m.tempStates[s] = true
-				}
-				for _, p := range m.cfg.GetFilteredPriorities(projCode) {
-					m.tempPriorities[p] = true
-				}
-			}
+			m.openFilters()
 			return m, nil
 		case "s":
 			if m.cfg != nil {
@@ -1255,13 +1081,7 @@ func (m issuesModel) Update(msg tea.Msg) (issuesModel, tea.Cmd) {
 				return pushStateMsg{state: stateForm, data: m.effectiveProjectCode()}
 			}
 		case "r":
-			m.loading = true
-			m.err = nil
-			m.skip = 0
-			m.loadedAll = false
-			m.issues = nil
-			delete(m.cache, m.cacheKey())
-			return m, m.loadIssuesCmd()
+			return m, m.startContext(true)
 		}
 
 		// Let the table handle navigation keys
@@ -1272,8 +1092,15 @@ func (m issuesModel) Update(msg tea.Msg) (issuesModel, tea.Cmd) {
 }
 
 func (m issuesModel) View() string {
+	return boundIssueView(m.renderView(), m.width, m.height)
+}
+
+func (m issuesModel) renderView() string {
+	if m.filterMode {
+		return m.filterPanelView()
+	}
 	if m.err != nil {
-		return StyleErrorMessage.Render(fmt.Sprintf("Error: %v", m.err))
+		return m.filterSummary() + "\n" + StyleErrorMessage.Render(fmt.Sprintf("Error: %v", m.err)) + "\n[F] Change filters  [r] Retry  [Esc] Back"
 	}
 
 	if m.loading {
@@ -1352,74 +1179,6 @@ func (m issuesModel) View() string {
 		return lipgloss.JoinVertical(lipgloss.Left, title, box, "", help)
 	}
 
-	if m.filterMode && m.cfg != nil {
-		// Build states column
-		var statesCol strings.Builder
-		statesCol.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color(ColorViolet)).Bold(true).Render(" STATES") + "\n\n")
-		states := m.getAvailableStates()
-		for i, s := range states {
-			checked := "[ ]"
-			if m.tempStates[s] {
-				checked = "[x]"
-			}
-			item := fmt.Sprintf(" %s %s ", checked, s)
-			if i == m.filterCursor {
-				statesCol.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color(ColorBg)).Background(lipgloss.Color(ColorCyan)).Bold(true).Render(item) + "\n")
-			} else {
-				statesCol.WriteString(item + "\n")
-			}
-		}
-
-		// Build priorities column
-		var prioritiesCol strings.Builder
-		prioritiesCol.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color(ColorViolet)).Bold(true).Render(" PRIORITIES") + "\n\n")
-		numStates := len(states)
-		priorities := m.getAvailablePriorities()
-		for i, p := range priorities {
-			checked := "[ ]"
-			if m.tempPriorities[p] {
-				checked = "[x]"
-			}
-			item := fmt.Sprintf(" %s %s ", checked, p)
-			globalIdx := numStates + i
-			if globalIdx == m.filterCursor {
-				prioritiesCol.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color(ColorBg)).Background(lipgloss.Color(ColorCyan)).Bold(true).Render(item) + "\n")
-			} else {
-				prioritiesCol.WriteString(item + "\n")
-			}
-		}
-
-		// Calculate column width (leave some margin)
-		colWidth := (m.width - 8) / 2
-		if colWidth < 20 {
-			colWidth = 20
-		}
-
-		columns := lipgloss.JoinHorizontal(lipgloss.Top,
-			lipgloss.NewStyle().Width(colWidth).Render(statesCol.String()),
-			lipgloss.NewStyle().Width(colWidth).Render(prioritiesCol.String()),
-		)
-
-		boxTitle := lipgloss.NewStyle().Foreground(lipgloss.Color(ColorCyan)).Bold(true).Render(" Filter by State & Priority ")
-		box := lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color(ColorViolet)).
-			Padding(1, 2).
-			Width(m.width - 4).
-			Render(lipgloss.JoinVertical(lipgloss.Left,
-				boxTitle,
-				"",
-				columns,
-			))
-
-		titleText := " Issues Filter "
-		title := StyleTitle.Render(titleText)
-
-		help := StyleHelp.Render(" [↑↓←→] Navigate  [Space] Toggle  [Enter] Save  [Esc] Cancel  " + quitHelp() + " ")
-
-		return lipgloss.JoinVertical(lipgloss.Left, title, box, "", help)
-	}
-
 	var statusSuffix string
 	if len(m.issues) > 0 {
 		visibleCount := len(m.table.Rows())
@@ -1436,6 +1195,10 @@ func (m issuesModel) View() string {
 				statusSuffix = fmt.Sprintf(" (Loaded %d)", len(m.issues))
 			}
 		}
+	}
+
+	if m.limitReached {
+		statusSuffix += fmt.Sprintf(" · limit %d reached", m.maxIssues)
 	}
 
 	var titleText string
@@ -1477,7 +1240,7 @@ func (m issuesModel) View() string {
 	} else {
 		titleText = fmt.Sprintf(" Issues%s ", statusSuffix)
 	}
-	url := m.client.GetConfiguredBaseURL()
+	url := m.serverURL
 	isFavorite := m.cfg != nil && m.cfg.GetFavoriteView(url) != "" && m.cfg.GetFavoriteView(url) == m.currentViewData()
 	var starStr string
 	if isFavorite {
@@ -1486,6 +1249,7 @@ func (m issuesModel) View() string {
 	titleTextStyled := lipgloss.NewStyle().Foreground(lipgloss.Color(ColorViolet)).Bold(true).Render(titleText)
 	title := lipgloss.NewStyle().MarginBottom(1).Render(starStr + titleTextStyled)
 
+	m.updateTableColumns()
 	m.updateTableHeight()
 
 	var searchBar string
@@ -1498,12 +1262,9 @@ func (m issuesModel) View() string {
 	}
 
 	tableStr := m.table.View()
-	help := StyleHelp.Render(" [Esc] Back  [↑↓] Navigate  [Space] Action  [Enter] Detail  [/] Search  [F] Filter  [f] Favorite  [s] Sort  [n] New  [r] Refresh  [?] Help  " + quitHelp() + " ")
-	if m.projectCode != "" && m.projectCode != "ME" {
-		help = StyleHelp.Render(" [Esc] Back  [↑↓] Navigate  [Space] Action  [Enter] Detail  [K] Knowledge Base  [/] Search  [F] Filter  [f] Favorite  [s] Sort  [n] New  [r] Refresh  [?] Help  " + quitHelp() + " ")
-	}
+	help := m.issueHelp()
 
-	view := lipgloss.JoinVertical(lipgloss.Left, title, tableStr, searchBar, "", help)
+	view := lipgloss.JoinVertical(lipgloss.Left, title, m.filterSummary(), tableStr, searchBar, "", help)
 
 	if m.actionMode {
 		actions := m.actionList()
