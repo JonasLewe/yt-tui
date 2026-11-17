@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -473,10 +474,7 @@ func (m detailModel) Update(msg tea.Msg) (res detailModel, cmd tea.Cmd) {
 		m.filepicker = zres.Picker
 		if zres.Handled {
 			if zres.Jumped && m.cfg != nil {
-				m.cfg.FilepickerSortBy = m.filepicker.SortBy.String()
-				m.cfg.FilepickerSortOrder = m.filepicker.SortOrder.String()
-				m.cfg.FilepickerLastDir = m.filepicker.CurrentDirectory
-				_ = config.SaveConfig(m.cfg)
+				_ = saveFilepickerPreferences(m.cfg, m.filepicker)
 			}
 			return m, zres.Cmd
 		}
@@ -486,10 +484,7 @@ func (m detailModel) Update(msg tea.Msg) (res detailModel, cmd tea.Cmd) {
 				m.filepickerActive = false
 				m.zoxide = m.zoxide.close()
 				if m.cfg != nil {
-					m.cfg.FilepickerSortBy = m.filepicker.SortBy.String()
-					m.cfg.FilepickerSortOrder = m.filepicker.SortOrder.String()
-					m.cfg.FilepickerLastDir = m.filepicker.CurrentDirectory
-					_ = config.SaveConfig(m.cfg)
+					_ = saveFilepickerPreferences(m.cfg, m.filepicker)
 				}
 				return m, nil
 			}
@@ -499,10 +494,7 @@ func (m detailModel) Update(msg tea.Msg) (res detailModel, cmd tea.Cmd) {
 				m.filepickerActive = false
 				m.zoxide = m.zoxide.close()
 				if m.cfg != nil {
-					m.cfg.FilepickerSortBy = m.filepicker.SortBy.String()
-					m.cfg.FilepickerSortOrder = m.filepicker.SortOrder.String()
-					m.cfg.FilepickerLastDir = m.filepicker.CurrentDirectory
-					_ = config.SaveConfig(m.cfg)
+					_ = saveFilepickerPreferences(m.cfg, m.filepicker)
 				}
 				filename := fmt.Sprintf("file-%s-%s", time.Now().Format("20060102-150405"), filepath.Base(path))
 				if m.mode == modeNormal {
@@ -1478,14 +1470,22 @@ func (m detailModel) Update(msg tea.Msg) (res detailModel, cmd tea.Cmd) {
 				return m, nil
 			case "enter":
 				if m.cfg != nil {
-					var newFilters []string
+					newFilters := []string{}
 					for _, f := range ActivityFilterOptions {
 						if m.tempFilters[f] {
 							newFilters = append(newFilters, f)
 						}
 					}
-					m.cfg.ActivityFilters = newFilters
-					m.cfg.ActivitySortOrder = m.tempActivitySortOrder
+					if !maps.Equal(selection(newFilters), selection(m.cfg.ActivityFilters)) {
+						m.cfg.ActivityFilters = newFilters
+					}
+					previousOrder := "asc"
+					if strings.EqualFold(m.cfg.ActivitySortOrder, "desc") {
+						previousOrder = "desc"
+					}
+					if m.tempActivitySortOrder != previousOrder {
+						m.cfg.ActivitySortOrder = m.tempActivitySortOrder
+					}
 					_ = config.SaveConfig(m.cfg)
 					m.loading = true
 					m.loadingText = "Filtering activities..."
@@ -1989,7 +1989,7 @@ func (m detailModel) Update(msg tea.Msg) (res detailModel, cmd tea.Cmd) {
 		case "m":
 			if m.cfg != nil {
 				m.cfg.RenderMarkdown = !m.cfg.RenderMarkdown
-				_ = config.SaveConfig(m.cfg)
+				_ = config.SaveConfig(m.cfg, "render_markdown")
 				m.updateViewportContents()
 				return m, nil
 			}

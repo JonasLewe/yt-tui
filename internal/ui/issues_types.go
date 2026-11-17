@@ -272,8 +272,16 @@ func (m *issuesModel) saveFilters() tea.Cmd {
 	next.FilteredPriorities = maps.Clone(m.cfg.FilteredPriorities)
 	next.FilteredTypes = maps.Clone(m.cfg.FilteredTypes)
 	states, priorities := m.filterPanel.sections[0], m.filterPanel.sections[1]
-	next.SetFilteredStates(code, selectedValues(states.Options, states.Selected))
-	next.SetFilteredPriorities(code, selectedValues(priorities.Options, priorities.Selected))
+	stateValues := selectedValues(states.Options, states.Selected)
+	priorityValues := selectedValues(priorities.Options, priorities.Selected)
+	// Applying one section must not turn the other inherited selections into
+	// fixed project overrides. Compare sets because option order is incidental.
+	if !maps.Equal(selection(stateValues), selection(m.cfg.GetFilteredStates(code))) {
+		next.SetFilteredStates(code, stateValues)
+	}
+	if !maps.Equal(selection(priorityValues), selection(m.cfg.GetFilteredPriorities(code))) {
+		next.SetFilteredPriorities(code, priorityValues)
+	}
 	typesChanged := false
 	if len(m.filterPanel.sections) == 3 {
 		types := m.filterPanel.sections[2]
@@ -289,20 +297,22 @@ func (m *issuesModel) saveFilters() tea.Cmd {
 			}
 		}
 		typesChanged = !slices.Equal(values, m.selectedTypes)
-		aliases := m.projectAliases()
-		canonical := m.projectCode
-		for _, alias := range aliases {
-			if alias != "" {
-				canonical = alias
-				break
+		if typesChanged {
+			aliases := m.projectAliases()
+			canonical := m.projectCode
+			for _, alias := range aliases {
+				if alias != "" {
+					canonical = alias
+					break
+				}
 			}
-		}
-		for _, alias := range aliases {
-			if alias != canonical {
-				delete(next.FilteredTypes, alias)
+			for _, alias := range aliases {
+				if alias != canonical {
+					delete(next.FilteredTypes, alias)
+				}
 			}
+			next.SetFilteredTypes(canonical, values)
 		}
-		next.SetFilteredTypes(canonical, values)
 	}
 	if err := config.SaveConfig(&next); err != nil {
 		m.filterError = "Could not save filters: " + err.Error()

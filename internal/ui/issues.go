@@ -948,7 +948,11 @@ func (m issuesModel) Update(msg tea.Msg) (issuesModel, tea.Cmd) {
 				}
 				if m.cfg != nil {
 					m.cfg.SortColumn = m.tempSortCol
-					m.cfg.SortDirection = m.tempSortDir
+					// Empty direction inherits ascending order. Choosing a column
+					// must not turn that inherited direction into an override.
+					if strings.EqualFold(m.tempSortDir, "desc") != strings.EqualFold(m.cfg.SortDirection, "desc") {
+						m.cfg.SortDirection = m.tempSortDir
+					}
 					_ = config.SaveConfig(m.cfg)
 					m.updateTableColumns()
 					m.updateTableRows()

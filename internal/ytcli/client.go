@@ -74,7 +74,7 @@ func NewClient() *Client {
 			if cfg != nil && cfg.URL == "" && cfg.Token == "" {
 				cfg.URL = c.baseURL
 				cfg.Token = c.token
-				_ = config.SaveConfig(cfg)
+				_ = config.SaveConfig(cfg, "url", "token")
 			}
 		}
 	}
@@ -1820,7 +1820,7 @@ func (c *Client) SaveCredentials(baseURL, token string) error {
 	}
 	cfg.URL = baseURL
 	cfg.Token = token
-	return config.SaveConfig(cfg)
+	return config.SaveConfig(cfg, "url", "token")
 }
 
 // parseEnvFile reads an env file and returns all key-value pairs.

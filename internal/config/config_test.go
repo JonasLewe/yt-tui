@@ -172,7 +172,7 @@ func TestTypeConfigurationFallbacks(t *testing.T) {
 	}
 	cfg.TypeFieldName["default"] = "Type"
 	cfg.TypeFieldName["APP"] = ""
-	if cfg.GetTypeFieldName("APP") != "Type" {
-		t.Fatal("empty project field name must fall back to the default")
+	if cfg.GetTypeFieldName("APP") != "" {
+		t.Fatal("explicit empty project field name must restore automatic detection")
 	}
 }

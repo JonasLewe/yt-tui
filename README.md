@@ -78,6 +78,20 @@ go build -trimpath -ldflags="-s -w" -o yt-tui .
 sudo cp yt-tui /usr/local/bin/
 ```
 
+### Updating an Existing Installation
+
+Pulling source changes does not replace an installed binary. Fully exit running TUI sessions with `Q` before updating, so an older process cannot save its previous configuration format. In your existing checkout, update the branch you use and build into the executable path used by your shell:
+
+```bash
+git pull --ff-only
+yt_tui_executable="$(command -v yt-tui)"
+test -n "$yt_tui_executable" &&
+  go build -ldflags "-X main.version=dev-$(git rev-parse --short=8 HEAD)" -o "$yt_tui_executable" . &&
+  "$yt_tui_executable" --version
+```
+
+The target must be writable by your user. In Neovim, check its actual executable path with `:lua print(vim.fn.exepath('yt-tui'))`; if this differs from your shell, use that path for `-o` instead. Then run `:YtTuiRestart` so the integration launches the new binary. `:YtTui`, toggling the window, or hiding it with `q` resumes the existing process.
+
 ---
 
 ## 🏃 Usage
@@ -108,13 +122,40 @@ When you pass a URL:
 
 ## ⚙️ Configuration
 
-`yt-tui` loads its user settings and credentials from a JSON file located at `~/.config/yt-tui/config.json`. The file and its parent directories are automatically created with default settings on the first run.
+`yt-tui` loads personal settings and credentials from `~/.config/yt-tui/config.json`. Each startup begins with the defaults shipped by the installed version and applies the explicit values in this file. A first run creates a minimal versioned file rather than copying every default into it.
+
+### Defaults and Personal Overrides
+
+Keep only the settings you want to override. Missing settings inherit the current defaults, including new default columns such as **Type**. Explicit scalar and array values replace the corresponding default; project maps retain inherited entries unless you override those entries. The app saves the settings you change without turning the remaining defaults into personal overrides. Unknown top-level settings are preserved.
+
+For example, this file uses the standard columns and only changes the sort order:
+
+```json
+{
+  "config_version": 1,
+  "url": "https://youtrack.example.com",
+  "token": "$YOUTRACK_TOKEN",
+  "sort_column": "Assignee",
+  "sort_direction": "asc"
+}
+```
+
+An explicit, nonempty `fields` list defines your complete layout. For example, adding `"fields": ["ID", "Summary", "Assignee"]` deliberately hides Type and the other columns. This list remains unchanged when a later release adds default columns. To use the latest standard layout again, remove `fields` from the file and restart the TUI. Removing another override similarly restores its current default. A known setting with `null` also inherits its default; meaningful explicit values such as `false`, `max_issues: 0`, and an empty project filter list are retained.
+
+### Existing Configurations
+
+Files without `config_version`, or with version `0`, migrate once to version `1`. Before any migration rewrite, the app creates an exact copy named `config.json.before-v1-*` beside the configuration. The original is retained if backing up or writing the migration fails. Both the backup and the new configuration are readable and writable only by your user.
+
+The migration removes recognized historical generated defaults so they can follow future releases. This includes the original five-column layout (`ID`, `Summary`, `State`, `Priority`, `Assignee`) and the current six-column layout including `Type`, default page limits, built-in type/state/priority/work-type lists, unrestricted built-in State/Priority filters, and the original Markdown/theme/browser/activity defaults. Other values, credentials, unknown keys, and customized project entries remain intact.
+
+Older files do not record whether a value equal to an old default was intentionally chosen. The migration treats those recognized values as inherited; the backup preserves the original file. In version `1`, an explicitly written value remains a personal override even when it equals the current default. To pin a recognized legacy value before migrating, add `"config_version": 1` yourself; the migration will not remove it.
 
 ### Environment Variables & `.env` Files (Optional)
 You can resolve values in `config.json` dynamically from environment variables by prefixing the value with `$`. For example:
 
 ```json
 {
+  "config_version": 1,
   "url": "youtrack url",
   "token": "$SOMETOKEN"
 }
@@ -134,6 +175,7 @@ If you manage issues across multiple YouTrack instances, you can configure an ar
 
 ```json
 {
+  "config_version": 1,
   "servers": [
     {
       "name": "Work YouTrack",
@@ -152,49 +194,18 @@ If you manage issues across multiple YouTrack instances, you can configure an ar
 
 If you select one of the configured servers, `yt-tui` will authenticate using those credentials. You can also select the `➕ Connect to another YouTrack...` option to manually input a new server's URL and token.
 
-### Default Config Structure
-
-```json
-{
-  "url": "",
-  "token": "",
-  "page_size": 20,
-  "max_issues": 500,
-  "fields": ["ID", "Type", "Summary", "State", "Priority", "Assignee"],
-  "custom_types": {
-    "default": ["Bug", "Task", "Story", "Ops", "Initiative", "Epic"],
-    "MTEL": ["Bug", "Feature", "Task"]
-  },
-  "custom_priorities": {
-    "default": ["0 - Immediate action", "1 - Interrupt current sprint", "2 - Must have", "3 - Should have", "4 - Nice to have"],
-    "MTEL": ["Minor", "Normal", "Major"]
-  },
-  "custom_states": {
-    "default": ["Open", "In Progress", "Verified", "Done", "Duplicate", "Won't fix", "Incomplete"],
-    "MTEL": ["In Development", "Testing", "Closed"]
-  },
-  "sort_column": "ID",
-  "sort_direction": "asc",
-  "favorite_view": "",
-  "render_markdown": true,
-  "image_viewer": "sxiv",
-  "browser_command": "xdg-open",
-  "gitlab_command": "",
-  "theme": "catppuccin"
-}
-```
-
 ### Configuration Options
 
 | Option                  | Type             | Default                                                                          | Description                                                                                                                                                                                                                                                                                                                                                                                              |
 | ----------------------- | ---------------- | -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `config_version` | Integer | `1` | Configuration format version. Managed by the app; legacy files migrate once with a backup. |
 | `url`                   | String           | `""`                                                                             | The base URL of your YouTrack instance (e.g. `https://company.youtrack.cloud`).                                                                                                                                                                                                                                                                                                                          |
 | `token`                 | String           | `""`                                                                             | Your permanent YouTrack API token.                                                                                                                                                                                                                                                                                                                                                                       |
 | `servers`               | Array of Objects | `[]` (empty)                                                                     | List of YouTrack server configurations (each containing `name`, `url`, `token`, and optionally `vcs_base_url` or `username_separator`) to choose from on startup.                                                                                                                                                                                                                                        |
 | `username_separator`    | String           | `""` (defaults to `.`)                                                           | The separator string used to merge first and last names when normalizing assignee inputs (e.g., `_` for `First_Last` or `.` for `first.last`). Can be set globally or per-server.                                                                                                                                                                                                                        |
-| `page_size`             | Integer          | `20`                                                                             | The number of issues requested per query page. Larger page sizes fetch more records at once, while smaller sizes load background pages in quicker increments.                                                                                                                                                                                                                                            |
-| `max_issues`            | Integer          | `500`                                                                            | The maximum number of issues to load for a project list. Once this limit is reached, the app will stop fetching new pages of issues to prevent performance degradation on massive projects.                                                                                                                                                                                                              |
-| `fields` | Array of Strings | `["ID", "Type", "Summary", "State", "Priority", "Assignee"]` | Columns in the issues list. Supports `ID`, `Type`, `Summary`, `State`, `Priority`, `Assignee`, `Updated`, `Updater`, `Created`, `Creator`/`Reporter`, and custom field names. Existing configurations retain their columns; add `"Type"` to display it. Missing type values appear as `—`. |
+| `page_size`             | Integer          | `20`                                                                             | A positive number of issues requested per query page. Larger page sizes fetch more records at once, while smaller sizes load background pages in quicker increments.                                                                                                                                                                                                                                            |
+| `max_issues`            | Integer          | `500`                                                                            | The maximum number of issues to load for a project list. Set `0` for no limit; otherwise the app stops fetching pages when this cap is reached.                                                                                                                                                                                                              |
+| `fields` | Array of Strings | `["ID", "Type", "Summary", "State", "Priority", "Assignee"]` | Columns in the issues list. Supports `ID`, `Type`, `Summary`, `State`, `Priority`, `Assignee`, `Updated`, `Updater`, `Created`, `Creator`/`Reporter`, and custom field names. Omit this setting to follow the current default layout. An explicit list is a complete personal layout; recognized legacy default lists migrate to inheritance. Missing type values appear as `—`. |
 | `filtered_types` | Object | Unset (all types) | Saved type selections per project ShortName or ID, with an optional `default` fallback; for example `{"APP": ["Bug", "Story"], "ALL": []}`. A project entry containing `[]` means all types and overrides any default restriction. Values are actual YouTrack type names, selected through `F` in a project issues list. |
 | `type_field_name` | Object | Unset (automatic) | Maps project ShortName or ID to its issue type custom field name, with an optional `default` fallback; for example `{"APP": "Ticket Type", "default": "Category"}`. Without an override, the app detects `Type` or `Issue Type`. |
 | `custom_types`          | Object           | `{}` (empty)                                                                     | Custom list of issue type options configured per project (keyed by project ShortName or ID, e.g. `{"MTEL": ["Bug", "Task"], "default": ["Bug", "Feature"]}`) to populate the creation dropdown. Supports legacy array format as a fallback.                                                                                                                                                              |
@@ -419,7 +430,7 @@ The Type filter obtains its choices from the project's YouTrack field configurat
 
 If the project's type settings cannot be read, the panel shows only saved or observed values and reports that its options are unavailable. A restricted type filter is not applied until these settings can be read, and an existing restriction is never silently removed. Close the panel and press `r` to retry, or choose **All types** to browse without a type restriction.
 
-New configurations show the **Type** column after ID. Column widths adapt to the terminal while preserving your configured column order. Existing configurations keep their saved `fields` list; add `"Type"` in `~/.config/yt-tui/config.json` to show it. An issue with no type is shown as `—`. If your project uses another field name, configure `type_field_name` for that project. If `filtered_types` is absent, all types are included; an explicit empty project selection also includes all types even if a `default` restriction exists.
+The standard layout shows the **Type** column after ID. Column widths adapt to the terminal while preserving your configured column order. Recognized legacy standard layouts migrate automatically. An explicit personal `fields` list remains intact; add `"Type"` to that list, or remove the setting to inherit the full current standard layout. An issue with no type is shown as `—`. If your project uses another field name, configure `type_field_name` for that project. If `filtered_types` is absent, all types are included; an explicit empty project selection also includes all types even if a `default` restriction exists.
 
 For `filtered_types` and `type_field_name`, a project ShortName entry takes precedence over its numeric project ID entry, followed by `default`. Saving the type filter uses the project's ShortName and removes its older ID entry so both ways of opening the project use the same selection.
 
