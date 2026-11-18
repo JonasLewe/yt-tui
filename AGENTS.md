@@ -6,9 +6,9 @@ This document provides a technical guide, architecture map, behavioral rules, an
 
 ## Branch Workflow
 
-* `main` is the maintained default for this fork. Create focused `feat/*` or `fix/*` branches from an up-to-date `main` and target pull requests at `main`.
+* `main` is the maintained default for this fork. Create focused `feat/*`, `fix/*`, or `docs/*` branches from an up-to-date `main` and target pull requests at `main`.
 * Before merging, verify formatting, run `go vet ./...`, `go test -race ./...`, and a build. Exercise the affected TUI flow for behavior changes. Preserve existing feature history during integration.
-* `personal/combined` remains available for existing checkouts; do not use it as a separate development target for new work.
+* Delete working branches after their changes are fully merged into `main`.
 * Track `https://github.com/nospor/yt-tui.git` as `upstream`. Integrate selected upstream changes through a temporary `sync/*` branch and a tested pull request to `main`, preserving this fork's behavior.
 * Main merges and binary releases are separate operations. Do not create a release tag as part of an ordinary feature merge.
 
