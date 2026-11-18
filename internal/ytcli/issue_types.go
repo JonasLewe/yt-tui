@@ -154,7 +154,7 @@ func (c *Client) GetProjectIssueTypes(projectID, configuredFieldName string) (Is
 		info.Project.ID = projectID
 	}
 
-	fields, err := fetchIssueTypePages[projectIssueTypeField](c,
+	fields, err := fetchPages[projectIssueTypeField](c,
 		"api/admin/projects/"+url.PathEscape(projectID)+"/customFields",
 		"field(name),$type,bundle(id)")
 	if err != nil {
@@ -182,7 +182,7 @@ func (c *Client) GetProjectIssueTypes(projectID, configuredFieldName string) (Is
 	if selected.Bundle == nil || selected.Bundle.ID == "" {
 		return info, fmt.Errorf("issue type field %q has no accessible enum bundle", info.FieldName)
 	}
-	values, err := fetchIssueTypePages[issueTypeBundleValue](c,
+	values, err := fetchPages[issueTypeBundleValue](c,
 		"api/admin/customFieldSettings/bundles/enum/"+url.PathEscape(selected.Bundle.ID)+"/values",
 		"name,ordinal")
 	if err != nil {
@@ -223,7 +223,7 @@ func isIssueTypeProjectID(projectID string) bool {
 	return true
 }
 
-func fetchIssueTypePages[T any](c *Client, endpoint, fields string) ([]T, error) {
+func fetchPages[T any](c *Client, endpoint, fields string) ([]T, error) {
 	const pageSize = 200
 	var result []T
 	for skip := 0; ; {

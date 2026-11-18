@@ -1935,6 +1935,11 @@ func (m detailModel) Update(msg tea.Msg) (res detailModel, cmd tea.Cmd) {
 				}
 				return usersForAssignLoadedMsg{users: users}
 			}
+		case "n":
+			if m.issue != nil && m.issue.Project != nil && m.issue.ID != "" {
+				data := strings.Join([]string{"linked", m.issue.Project.ShortName, m.issue.ID, m.issue.IDReadable}, ":")
+				return m, func() tea.Msg { return pushStateMsg{state: stateForm, data: data} }
+			}
 		case "C":
 			// Clone issue (pushes form pre-filled)
 			return m, func() tea.Msg {
@@ -2324,7 +2329,7 @@ func (m detailModel) footerHelp() string {
 	if m.boardsHasField && len(m.boardsOptions) > 0 {
 		helpStr += "  [B] Boards"
 	}
-	helpStr += fmt.Sprintf("  [e] %s  [C] Clone  [y] Yank  [o] Open%s%s%s%s  [?] Help  %s ", editAction, filterAction, mdAction, deleteAction, editorViewAction, quitHelp())
+	helpStr += fmt.Sprintf("  [e] %s  [n] New linked issue  [C] Clone  [y] Yank  [o] Open%s%s%s%s  [?] Help  %s ", editAction, filterAction, mdAction, deleteAction, editorViewAction, quitHelp())
 	return StyleHelp.Render(wrapFooterHelp(helpStr, m.width-4))
 }
 

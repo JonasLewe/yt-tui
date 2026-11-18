@@ -485,6 +485,12 @@ func (m *AppModel) switchState(state State, data string, isBack bool) tea.Cmd {
 		m.detail.errPopupShow = false
 		return m.detail.loadDetailCmd()
 	case stateForm:
+		// A form can still have metadata requests in flight after it closes.
+		// Keep those requests on the connection that opened the form.
+		if m.client != nil {
+			client := *m.client
+			m.form.client = &client
+		}
 		return m.form.setupForm(data)
 	case stateArticles:
 		m.sizeArticleViews()
@@ -818,7 +824,7 @@ func (m AppModel) isAnyInputFocused() bool {
 			m.detail.trackTimeCommentInput.Focused() ||
 			m.detail.estimationInput.Focused()
 	case stateForm:
-		return m.form.zoxide.input.Focused() ||
+		return m.form.loading || m.form.pendingSave != nil || m.form.links.open() || m.form.zoxide.input.Focused() ||
 			m.form.summaryInput.Focused() ||
 			m.form.descTextArea.Focused() ||
 			m.form.assigneeInput.Focused()
@@ -944,6 +950,7 @@ func (m AppModel) renderHelpPopup() string {
 			{"e", "Edit desc/comment"},
 			{"Ctrl+g", "View desc/comment in editor"},
 			{"C", "Clone issue"},
+			{"n", "Create linked issue"},
 			{"y", "Yank options list"},
 			{"o", "Open URLs list"},
 			{"d", "Delete link/attach"},

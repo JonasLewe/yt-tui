@@ -462,6 +462,7 @@ Native tags appear as a wrapped list in the scrollable Description pane, so long
 * `a`: Assign issue (opens an assignee input with a **live user suggestion dropdown**). As you type, matching project members and YouTrack users appear below the input. Use `↑`/`↓` to navigate the list and `Tab` or `Enter` to apply the highlighted name. You can also type a username, `me`, or `unassigned` directly and press `Enter`.
 * `e`: Edit/update this issue's details (Summary, Description, Priority, Type, Assignee). When focusing the Comments viewport and a comment is selected, this edits the selected comment instead (supporting `@` mention autocomplete, `Alt+Enter` for newlines, `Ctrl+v` image paste, `Ctrl+f` computer file attachment, and `Ctrl+g` external editor inside the comment editor).
 * `E`: Edit the issue's **Estimation** field (opens a small modal popup). Type a duration in `1w 1d 1h 1m` format and press `Enter` to save or `Esc` to cancel. Leave the input empty to clear the estimation.
+* Press `n` to create a linked issue in the same project. Choose how the new issue relates to this one, then fill in the form.
 * `C`: Clone this issue. Pre-populates the new issue form with this ticket's details, and automatically links the new issue back to the original under the "Is clone of" relationship.
 * `y`: Start a yanking motion to copy issue details to the clipboard. Follow with:
   - `i`: Copy just the task ID to the clipboard.
@@ -485,8 +486,17 @@ Native tags appear as a wrapped list in the scrollable Description pane, so long
 * `Ctrl+g` (on Description field): Open preferred external editor (using the `$EDITOR` environment variable) to write/edit the description. Set `EDITOR=nvim` to use Neovim with your usual configuration and mappings. Save and exit the editor to return to the draft; `Ctrl+s` submits it to YouTrack. Navigation and shortcuts remain available after returning from the editor.
 * `Ctrl+v` (on Description field): Paste an image directly from the system clipboard (Linux `xclip`/`wl-paste`, macOS, Windows). This injects standard Markdown image syntax and uploads the image to YouTrack on form submission.
 * `Ctrl+f` (on Description field): Open the file browser popup to pick and attach files from your computer. Supports sorting results by name/datetime (pressing `s`) and order asc/desc (pressing `o`). Press `z` to open a [zoxide](https://github.com/ajeetdsouza/zoxide) directory jump overlay (`zoxide` must be on `PATH`): type to filter, `↑`/`↓` to move, `Enter` to jump, `Esc` to return to the browser. Last directory and sorting options are persisted in your config file.
-* `Ctrl+s` (or `Enter` on text inputs): Submit the form and save/create/clone the issue.
+* Press `Ctrl+s` to submit the form.
 * `Esc`: Cancel and discard changes.
+
+#### Create a linked issue
+
+1. **Starting from an existing issue?** Open it and press `n`. The project and link target are prefilled. **Already filling out a new issue?** Tab to **Links** and press `Enter`.
+2. Choose a relationship with `↑` or `↓` and press `Enter`. Read it from the new issue’s perspective. For example, to create a Story under an existing Epic, select **subtask of** if your YouTrack instance offers that relationship.
+3. If the target is still empty, enter an issue ID such as `APP-42` or a YouTrack search query. Press `Enter` to search, select a result and press `Enter` to add it.
+4. Fill in the summary and any other fields, then press `Ctrl+s`. To review links before submitting, open **Links** again. Choose **Add another link** to add one, or highlight an existing link and press `d` to remove it.
+
+If YouTrack creates the issue but a link or attachment fails, the form displays the saved issue ID. Press `Enter` to retry the remaining work on that issue, or `Esc` to return.
 
 ## Development Workflow
 

@@ -815,38 +815,8 @@ func (c *Client) ListIssueLinkTypes() ([]IssueLinkType, error) {
 	if c.baseURL == "" || c.token == "" {
 		return nil, errors.New("missing YouTrack connection URL or token")
 	}
-
-	baseURL := c.baseURL
-	if !strings.HasSuffix(baseURL, "/") {
-		baseURL += "/"
-	}
-	apiURL := baseURL + "api/issueLinkTypes"
-
-	// Query parameters
-	params := url.Values{}
-	params.Set("fields", "id,name,localizedName,sourceToTarget,localizedSourceToTarget,targetToSource,localizedTargetToSource,directed")
-	apiURL += "?" + params.Encode()
-
-	req, err := c.newRequest("GET", apiURL, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	body, statusCode, err := c.doRequest(req)
-	if err != nil {
-		return nil, err
-	}
-
-	if statusCode != http.StatusOK {
-		return nil, parseAPIError(statusCode, body)
-	}
-
-	var linkTypes []IssueLinkType
-	if err := json.Unmarshal(body, &linkTypes); err != nil {
-		return nil, err
-	}
-
-	return linkTypes, nil
+	return fetchPages[IssueLinkType](c, "api/issueLinkTypes",
+		"id,name,localizedName,sourceToTarget,localizedSourceToTarget,targetToSource,localizedTargetToSource,directed")
 }
 
 // AddIssueLink creates a link between two issues.
