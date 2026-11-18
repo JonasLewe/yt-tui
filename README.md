@@ -56,28 +56,29 @@ This fork has not published its own binary release yet. Build from `main` below 
 
 ### 🛠️ Build This Fork from Source
 
-From the repository directory, build the current checkout and check its version:
+For a first checkout, run these commands once:
+
+```bash
+git clone https://github.com/JonasLewe/yt-tui.git
+cd yt-tui
+```
+
+From that directory, build the current branch and start the TUI:
 
 ```bash
 make build
 ./yt-tui --version
+./yt-tui
 ```
 
-Run `./yt-tui` to launch the local build. Its version includes the eight-character Git commit ID when available. For a first checkout, run `git clone https://github.com/JonasLewe/yt-tui.git` and `cd yt-tui` before building.
-
-On Linux/macOS, build and install the current checkout into `~/.local/bin` with:
-
-```bash
-make install
-```
-
-Ensure `$HOME/.local/bin` is on your `PATH` before launching `yt-tui` from another directory or from Neovim.
+The version includes the eight-character Git commit ID when available. To run `yt-tui` from any directory on Linux or macOS, use `make install` and ensure `$HOME/.local/bin` is on your `PATH`.
 
 ### Updating an Existing Installation
 
-Fully exit running TUI sessions with `Q`. From the checkout you want to run, rebuild and update the installed binary:
+Quit the TUI with `Q`. To update an installed copy from your current branch, run these commands in the repository directory:
 
 ```bash
+git pull --ff-only
 make install
 yt-tui --version
 ```
