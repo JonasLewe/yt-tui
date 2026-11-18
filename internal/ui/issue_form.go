@@ -26,6 +26,7 @@ const (
 	fieldDescription
 	fieldType
 	fieldPriority
+	fieldTags
 	fieldAssignee
 	numFields // total count
 )
@@ -45,6 +46,8 @@ type formModel struct {
 	width        int
 	height       int
 	focusIndex   formField
+
+	createTags issueFormTags
 
 	// Inputs
 	summaryInput  textinput.Model
@@ -312,6 +315,7 @@ func (m *formModel) setupForm(data string) tea.Cmd {
 	m.priorityIndex = 0
 	m.customTypes = nil
 	m.customPriorities = nil
+	m.createTags = newIssueFormTags(m.createTags.form + 1)
 	m.allUsers = nil
 	m.filteredUsers = nil
 	m.userCursor = 0
@@ -346,6 +350,9 @@ func (m *formModel) setupForm(data string) tea.Cmd {
 		m.focusCurrent()
 	}
 
+	if !m.isEdit && !m.isClone {
+		cmds = append(cmds, m.loadCreateTags())
+	}
 	return tea.Batch(cmds...)
 }
 
@@ -355,6 +362,14 @@ func (m formModel) Init() tea.Cmd {
 
 func (m formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 	var cmd tea.Cmd
+	if result, ok := msg.(createTagsLoadedMsg); ok {
+		if result.form == m.createTags.form {
+			m.createTags.tags, m.createTags.tagsErr = result.tags, result.err
+			m.createTags.tagsLoaded = true
+			m.createTags.tagIndex = 0
+		}
+		return m, nil
+	}
 
 	// Keep input sizes applied to the stored models so cursor navigation and
 	// viewport scrolling use the same width as rendering.
@@ -409,6 +424,12 @@ func (m formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 			var fpCmd tea.Cmd
 			m.filepicker, fpCmd = m.filepicker.Update(msg)
 			return m, fpCmd
+		}
+	}
+
+	if key, ok := msg.(tea.KeyMsg); ok && m.err == nil {
+		if handled, cmd := m.updateCreateTagKey(key); handled {
+			return m, cmd
 		}
 	}
 
@@ -1096,6 +1117,14 @@ func (m formModel) View() string {
 	}
 	builder.WriteString("\n")
 
+	if !m.isEdit && !m.isClone {
+		startField(fieldTags)
+		focused := m.focusIndex == fieldTags
+		builder.WriteString("Tags:\n")
+		builder.WriteString(renderField(m.createTags.renderTags(focused), focused, targetWidth))
+		builder.WriteString("\n\n")
+	}
+
 	startField(fieldAssignee)
 	builder.WriteString("Assignee:\n")
 	builder.WriteString(renderField(m.assigneeInput.View(), m.focusIndex == fieldAssignee, targetWidth))
@@ -1112,6 +1141,12 @@ func (m formModel) View() string {
 			helpText = " Type to filter  [↑/↓] Move  [Enter] Jump to directory  [Esc] Back to browser "
 		} else {
 			helpText = " [j/k/↑/↓] Navigate  [Enter] Select  [h/Esc] Parent Dir  [s] Toggle Sort Type  [o] Toggle Sort Order  [z] zoxide  [q/Esc] Close picker "
+		}
+	} else if m.focusIndex == fieldTags {
+		if m.createTags.tagSearching {
+			helpText = " Type to filter tags  [Enter] Keep search  [Esc] Clear search "
+		} else {
+			helpText = " [←/→] Browse tags  [/] Search  [Space] Toggle  [Tab] Next field  [Ctrl+s] Save "
 		}
 	} else if m.focusIndex == fieldDescription {
 		helpText = " [Tab/Shift-Tab] Navigate  [Ctrl+v] Paste Img  [Ctrl+f] Attach File  [Ctrl+g] External Editor  [Ctrl+s] Submit  [Esc] Back "
