@@ -1,6 +1,6 @@
 # 🎛️ YouTrack Terminal User Interface (TUI)
 
-This is [JonasLewe's fork](https://github.com/JonasLewe/yt-tui) of [nospor/yt-tui](https://github.com/nospor/yt-tui). Its `main` branch includes the assignee and external-editor fixes, Knowledge Base browsing/editing, numbered panels, and optional integration with [yt-tui.nvim](https://github.com/JonasLewe/yt-tui.nvim). The application also runs independently of Neovim.
+This is [JonasLewe's fork](https://github.com/JonasLewe/yt-tui) of [nospor/yt-tui](https://github.com/nospor/yt-tui). Its `main` branch is the maintained default and includes project type/tag filters, configuration defaults with personal overrides, the assignee and external-editor fixes, Knowledge Base browsing/editing, numbered panels, and optional integration with [yt-tui.nvim](https://github.com/JonasLewe/yt-tui.nvim). The application also runs independently of Neovim.
 
 A sleek, keyboard-driven terminal dashboard for JetBrains YouTrack, written in Go using the **Bubble Tea** framework. It communicates directly with the YouTrack REST API to provide high-performance, asynchronous, and interactive issue management without requiring any external Python CLI.
 
@@ -64,6 +64,7 @@ If you have Go installed, you can build the application manually:
 ```bash
 git clone https://github.com/JonasLewe/yt-tui.git
 cd yt-tui
+git switch main
 
 # to quickly build
 go build -o yt-tui .
@@ -80,9 +81,10 @@ sudo cp yt-tui /usr/local/bin/
 
 ### Updating an Existing Installation
 
-Pulling source changes does not replace an installed binary. Fully exit running TUI sessions with `Q` before updating, so an older process cannot save its previous configuration format. In your existing checkout, update the branch you use and build into the executable path used by your shell:
+Pulling source changes does not replace an installed binary. Fully exit running TUI sessions with `Q` before updating, so an older process cannot save its previous configuration format. In your existing checkout, use `main` and build into the executable path used by your shell. The former `personal/combined` integration branch is retained for existing checkouts; new development and installations use `main`.
 
 ```bash
+git switch main
 git pull --ff-only
 yt_tui_executable="$(command -v yt-tui)"
 test -n "$yt_tui_executable" &&
@@ -484,6 +486,20 @@ Native tags appear as a wrapped list in the scrollable Description pane, so long
 * `Ctrl+f` (on Description field): Open the file browser popup to pick and attach files from your computer. Supports sorting results by name/datetime (pressing `s`) and order asc/desc (pressing `o`). Press `z` to open a [zoxide](https://github.com/ajeetdsouza/zoxide) directory jump overlay (`zoxide` must be on `PATH`): type to filter, `↑`/`↓` to move, `Enter` to jump, `Esc` to return to the browser. Last directory and sorting options are persisted in your config file.
 * `Ctrl+s` (or `Enter` on text inputs): Submit the form and save/create/clone the issue.
 * `Esc`: Cancel and discard changes.
+
+## Development Workflow
+
+`main` is this fork's stable development and installation branch. Start focused `feat/*` and `fix/*` branches from an up-to-date `main`, then open pull requests back to `main`. Before merging, run the format check, `go vet ./...`, `go test -race ./...`, and a build; exercise the affected TUI flow when behavior changes. The GitHub test workflow runs for pull requests to `main` and pushes to `main`.
+
+Track the original project separately as `upstream`. In a checkout without that remote, configure it once:
+
+```bash
+git remote add upstream https://github.com/nospor/yt-tui.git
+```
+
+For upstream updates, fetch the original repository, create a temporary `sync/*` branch from `main`, and merge the desired upstream changes there. Resolve conflicts and run the same checks before opening a pull request to `main`. Preserve the fork's features and existing commit history when integrating upstream changes. `personal/combined` is a compatibility branch, not the target for new feature work.
+
+Merging to `main` does not publish binaries. Fork releases are a separate step triggered by version tags after the release workflow has been reviewed.
 
 ## License
 

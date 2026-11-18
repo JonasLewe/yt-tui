@@ -4,6 +4,14 @@ Welcome! This workspace contains the **YouTrack TUI (Terminal User Interface)**,
 
 This document provides a technical guide, architecture map, behavioral rules, and guidelines for AI agents working on this codebase.
 
+## Branch Workflow
+
+* `main` is the maintained default for this fork. Create focused `feat/*` or `fix/*` branches from an up-to-date `main` and target pull requests at `main`.
+* Before merging, verify formatting, run `go vet ./...`, `go test -race ./...`, and a build. Exercise the affected TUI flow for behavior changes. Preserve existing feature history during integration.
+* `personal/combined` remains available for existing checkouts; do not use it as a separate development target for new work.
+* Track `https://github.com/nospor/yt-tui.git` as `upstream`. Integrate selected upstream changes through a temporary `sync/*` branch and a tested pull request to `main`, preserving this fork's behavior.
+* Main merges and binary releases are separate operations. Do not create a release tag as part of an ordinary feature merge.
+
 ---
 
 ## 🛠 Project Architecture
