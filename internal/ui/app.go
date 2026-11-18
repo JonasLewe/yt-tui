@@ -331,7 +331,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.detail.width = childWidth
 		m.detail.height = childHeight
 
-		m.form.width = childWidth
+		m.form.width = max(1, childWidth-4)
 		m.form.height = childHeight
 		m.sizeArticleViews()
 

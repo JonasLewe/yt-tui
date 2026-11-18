@@ -277,14 +277,10 @@ func (m formModel) getPriorities() []string {
 // formTargetWidth returns the target width for form fields based on the
 // current form width.
 func (m formModel) formTargetWidth() int {
-	targetWidth := m.width - 8
-	if targetWidth < 40 {
-		targetWidth = 40
+	if m.width <= 0 {
+		return 40
 	}
-	if targetWidth > 80 {
-		targetWidth = 80
-	}
-	return targetWidth
+	return max(4, min(80, m.width-8))
 }
 
 // applyInputSizes applies the computed width to the stored input models so that
@@ -293,6 +289,9 @@ func (m *formModel) applyInputSizes() {
 	targetWidth := m.formTargetWidth()
 	m.summaryInput.Width = targetWidth - 2
 	m.descTextArea.SetWidth(targetWidth - 2)
+	if m.height > 0 {
+		m.descTextArea.SetHeight(max(1, min(10, m.height-10)))
+	}
 	m.assigneeInput.Width = targetWidth - 2
 }
 
@@ -900,22 +899,34 @@ func (m formModel) filterUsers(query string) []ytcli.User {
 	return result
 }
 
-func (m *formModel) nextField() {
+func (m formModel) canFocusField(field formField) bool {
+	switch field {
+	case fieldProject:
+		return !m.isEdit
+	case fieldSummary, fieldDescription, fieldType, fieldPriority, fieldAssignee:
+		return true
+	default:
+		return !m.isEdit && !m.isClone
+	}
+}
+
+func (m *formModel) moveFocus(step formField) {
 	m.blurCurrent()
-	m.focusIndex = (m.focusIndex + 1) % numFields
-	if m.isEdit && m.focusIndex == fieldProject {
-		m.focusIndex = (m.focusIndex + 1) % numFields
+	for {
+		m.focusIndex = (m.focusIndex + step + numFields) % numFields
+		if m.canFocusField(m.focusIndex) {
+			break
+		}
 	}
 	m.focusCurrent()
 }
 
+func (m *formModel) nextField() {
+	m.moveFocus(1)
+}
+
 func (m *formModel) prevField() {
-	m.blurCurrent()
-	m.focusIndex = (m.focusIndex - 1 + numFields) % numFields
-	if m.isEdit && m.focusIndex == fieldProject {
-		m.focusIndex = (m.focusIndex - 1 + numFields) % numFields
-	}
-	m.focusCurrent()
+	m.moveFocus(-1)
 }
 
 func (m *formModel) blurCurrent() {
@@ -1045,11 +1056,10 @@ func (m formModel) View() string {
 		priorityOptsList = renderDropdownOptions(priorities, m.priorityIndex)
 	}
 
-	// Build form layout with all labels on top of fields
-	formStyle := lipgloss.NewStyle().Padding(1, 2).Width(m.width - 4)
-	var builder strings.Builder
+	var fields [numFields]strings.Builder
+	builder := &fields[fieldProject]
+	startField := func(field formField) { builder = &fields[field] }
 
-	// Project
 	builder.WriteString("Project:\n")
 	builder.WriteString(renderField(projectVal, m.focusIndex == fieldProject, targetWidth))
 	builder.WriteString("\n")
@@ -1058,17 +1068,17 @@ func (m formModel) View() string {
 	}
 	builder.WriteString("\n")
 
-	// Summary
+	startField(fieldSummary)
 	builder.WriteString("Summary:\n")
 	builder.WriteString(renderField(m.summaryInput.View(), m.focusIndex == fieldSummary, targetWidth))
 	builder.WriteString("\n\n")
 
-	// Description
+	startField(fieldDescription)
 	builder.WriteString("Description:\n")
 	builder.WriteString(renderField(m.descTextArea.View(), m.focusIndex == fieldDescription, targetWidth))
 	builder.WriteString("\n\n")
 
-	// Type
+	startField(fieldType)
 	builder.WriteString("Type:\n")
 	builder.WriteString(renderField(typeVal, m.focusIndex == fieldType, targetWidth))
 	builder.WriteString("\n")
@@ -1077,7 +1087,7 @@ func (m formModel) View() string {
 	}
 	builder.WriteString("\n")
 
-	// Priority
+	startField(fieldPriority)
 	builder.WriteString("Priority:\n")
 	builder.WriteString(renderField(priorityVal, m.focusIndex == fieldPriority, targetWidth))
 	builder.WriteString("\n")
@@ -1086,7 +1096,7 @@ func (m formModel) View() string {
 	}
 	builder.WriteString("\n")
 
-	// Assignee
+	startField(fieldAssignee)
 	builder.WriteString("Assignee:\n")
 	builder.WriteString(renderField(m.assigneeInput.View(), m.focusIndex == fieldAssignee, targetWidth))
 	builder.WriteString("\n")
@@ -1095,8 +1105,6 @@ func (m formModel) View() string {
 		builder.WriteString(suggestion + "\n")
 	}
 	builder.WriteString("\n")
-
-	formContent := formStyle.Render(builder.String())
 
 	var helpText string
 	if m.filepickerActive {
@@ -1118,8 +1126,9 @@ func (m formModel) View() string {
 	} else {
 		helpText = " [Tab/Shift-Tab] Navigate Fields  [<- / -> or h/l] Select Dropdown Option  [Ctrl+s] Save & Submit  [?] Help  [Esc] Cancel/Back "
 	}
-	help := StyleHelp.Render(helpText)
-
+	help := StyleHelp.Width(m.width).Render(strings.TrimSpace(helpText))
+	available := m.height - lipgloss.Height(title) - lipgloss.Height(help) - 1
+	formContent := m.renderVisibleFields(&fields, available)
 	view := lipgloss.JoinVertical(lipgloss.Left, title, formContent, "", help)
 	if m.filepickerActive {
 		view = overlayFilepickerPopups(view, m.renderFilePickerPopup(), m.zoxide.render(m.width, m.height), m.width, m.height)
@@ -1141,6 +1150,35 @@ func (m formModel) View() string {
 	}
 
 	return view
+}
+
+// Keep the active field and its choices in view as the user tabs through the
+// form. Measure after wrapping so long options work on narrow terminals.
+func (m formModel) renderVisibleFields(fields *[numFields]strings.Builder, available int) string {
+	var lines []string
+	focusStart, focusEnd := 0, 0
+	style := lipgloss.NewStyle().Padding(0, 2)
+	if m.width > 0 {
+		style = style.Width(m.width)
+	}
+	for field := range fields {
+		if fields[field].Len() == 0 {
+			continue
+		}
+		start := len(lines)
+		block := style.Render(strings.TrimRight(fields[field].String(), "\n"))
+		lines = append(lines, strings.Split(block, "\n")...)
+		if formField(field) == m.focusIndex {
+			focusStart, focusEnd = start, len(lines)
+		}
+		lines = append(lines, "")
+	}
+	if m.height > 0 {
+		available = max(1, available)
+		start := max(0, min(focusStart, focusEnd-available))
+		lines = lines[start:min(len(lines), start+available)]
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (m formModel) renderErrorPopup() string {
