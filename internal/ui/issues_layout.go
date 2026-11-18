@@ -76,12 +76,12 @@ func issueColumnWidths(fields []issueField, width int) []int {
 
 func (m issuesModel) issueHelp() string {
 	if m.width < 70 {
-		return StyleHelp.Render("[F] Filter  [/] Search\n[Enter] Detail  [Esc] Back")
+		return StyleHelp.Render("[f] Filter  [Ctrl+f] Clear filters\n[/] Search  [Enter] Detail  [Esc] Back")
 	}
 	if m.width < 145 {
-		return StyleHelp.Render("[F] Filter  [/] Search  [Enter] Detail  [Esc] Back\n[↑↓] Move  [Space] Action  [?] Help  " + quitHelp())
+		return StyleHelp.Render("[f] Filter  [Ctrl+f] Clear filters  [/] Search\n[Enter] Detail  [Esc] Back  [Space] Action  [?] Help  " + quitHelp())
 	}
-	help := "[Esc] Back  [↑↓] Move  [Space] Action  [Enter] Detail  [/] Search  [F] Filter  [s] Sort  [n] New  [r] Refresh  [?] Help  " + quitHelp()
+	help := "[f] Filter  [Ctrl+f] Clear filters  [/] Search  [Enter] Detail  [Esc] Back  [↑↓] Move  [Space] Action  [s] Sort  [n] New  [r] Refresh  [?] Help  " + quitHelp()
 	if m.projectCode != "" && m.projectCode != "ME" {
 		help = "[K] Knowledge Base  " + help
 	}

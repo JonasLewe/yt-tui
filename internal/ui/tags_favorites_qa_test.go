@@ -43,8 +43,8 @@ func TestDisabledFavoritesPreserveSavedDataAndNavigation(t *testing.T) {
 			app.issues.width, app.issues.height, app.issues.loading = 100, 24, false
 			updated, cmd := app.Update(quitKey("f"))
 			app = updated.(AppModel)
-			if cmd != nil || app.state != state || len(app.history) != 0 {
-				t.Fatal("disabled favorite key changed navigation or started an action")
+			if (state == stateDashboard && cmd != nil) || app.issues.filterMode != (state == stateIssues) || app.state != state || len(app.history) != 0 {
+				t.Fatal("f did not open only the issue filter panel")
 			}
 			if cfg.FavoriteView != "LEGACY" || cfg.FavoriteViews[serverURL] != "DEMO" {
 				t.Fatal("disabled favorite key changed retained bookmark data")
@@ -142,10 +142,8 @@ func TestTypeOnlySaveDoesNotWaitForOrPersistUnusedTagFilters(t *testing.T) {
 		t.Run(lookup, func(t *testing.T) {
 			m := typeFilterModel(t)
 			m.openFilters()
-			m.tagScopeReady = false
-			m.tagScopeLoading = lookup == "pending"
+			m.tagsLoading = lookup == "pending"
 			if lookup == "failed" {
-				m.tagScopeErr = errors.New("account lookup failed")
 				m.tagsErr = errors.New("tag catalog unavailable")
 			}
 			m.filterPanel.sections[2].Selected = selection([]string{"Story"})
@@ -165,22 +163,20 @@ func TestTypeOnlySaveDoesNotWaitForOrPersistUnusedTagFilters(t *testing.T) {
 			if _, present := saved["filtered_tags"]; present {
 				t.Fatal("saving Type pinned unchanged unrestricted Tags")
 			}
-			if values := m.cfg.GetFilteredTypes("DEMO"); len(values) != 1 || values[0] != "Story" {
+			if values := m.selectedTypes; len(values) != 1 || values[0] != "Story" {
 				t.Fatalf("Type selection did not save: %v", values)
 			}
 		})
 	}
 }
 
-func TestFailedTagAccountLookupCannotBroadenSavedRestriction(t *testing.T) {
+func TestLegacyTagRestrictionDoesNotAffectSession(t *testing.T) {
 	m := typeFilterModel(t)
 	m.cfg.SetFilteredTags("https://account.example.invalid#1-7", "DEMO", []string{"backend"})
-	m.tagScopeReady, m.tagScopeLoading = false, false
-	m.tagScopeErr = errors.New("account lookup failed")
-	if cmd := m.restoreOrLoadIssues(); cmd != nil || m.err == nil || m.loading {
-		t.Fatal("failed account lookup allowed an unrestricted issue request")
+	if cmd := m.restoreOrLoadIssues(); cmd == nil || m.err != nil || len(m.selectedTags) > 0 || m.serverQuery != "" {
+		t.Fatal("legacy account restriction activated on startup")
 	}
 	if values := m.cfg.GetFilteredTags("https://account.example.invalid#1-7", "DEMO"); len(values) != 1 || values[0] != "backend" {
-		t.Fatal("failed account lookup removed the saved restriction")
+		t.Fatal("opening list changed stored legacy data")
 	}
 }

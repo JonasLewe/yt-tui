@@ -32,41 +32,37 @@ type issueField struct {
 }
 
 type issuesModel struct {
-	client              *ytcli.Client
-	cfg                 *config.Config
-	projectCode         string // empty if general search
-	query               string
-	agileID             string
-	sprintID            string
-	boardName           string
-	sprintName          string
-	issues              []ytcli.Issue
-	table               table.Model
-	searchInput         textinput.Model
-	searchMode          bool
-	filterMode          bool
-	filterPanel         issuesFilterPanel
-	filterError         string
-	loading             bool
-	err                 error
-	spinner             spinner.Model
-	width               int
-	height              int
-	skip                int
-	pageSize            int
-	maxIssues           int
-	loadedAll           bool
-	cache               map[issuesCacheKey]projectCache
-	serverURL           string
-	requestID           uint64
-	serverQuery         string
-	selectedTypes       []string
+	client      *ytcli.Client
+	cfg         *config.Config
+	projectCode string // empty if general search
+	query       string
+	agileID     string
+	sprintID    string
+	boardName   string
+	sprintName  string
+	issues      []ytcli.Issue
+	table       table.Model
+	searchInput textinput.Model
+	searchMode  bool
+	filterMode  bool
+	filterPanel issuesFilterPanel
+	filterError string
+	loading     bool
+	err         error
+	spinner     spinner.Model
+	width       int
+	height      int
+	skip        int
+	pageSize    int
+	maxIssues   int
+	loadedAll   bool
+	cache       map[issuesCacheKey]projectCache
+	serverURL   string
+	requestID   uint64
+	serverQuery string
+	issueListFilters
+	filtersByView       map[issueFilterView]issueListFilters
 	contextKey          string
-	selectedTags        []string
-	tagScope            string
-	tagScopeReady       bool
-	tagScopeLoading     bool
-	tagScopeErr         error
 	tags                []ytcli.Tag
 	tagsLoaded          bool
 	tagsLoading         bool
@@ -217,6 +213,7 @@ func newIssuesModel(client *ytcli.Client, cfg *config.Config) issuesModel {
 		skip:          0,
 		cache:         make(map[issuesCacheKey]projectCache),
 		typeInfoCache: make(map[issueTypesKey]ytcli.IssueTypeInfo),
+		filtersByView: make(map[issueFilterView]issueListFilters),
 		fields:        fields,
 	}
 	m.updateTableColumns()
@@ -262,66 +259,7 @@ func (m issuesModel) loadIssuesCmd() tea.Cmd {
 }
 
 func (m *issuesModel) isVisible(issue ytcli.Issue) bool {
-	if m.cfg == nil {
-		return true
-	}
-	state := issue.State()
-	// Check if state is in CustomStates
-	inCustomStates := false
-	projectCode := ""
-	if issue.Project != nil {
-		projectCode = issue.Project.ShortName
-		if projectCode == "" {
-			projectCode = issue.Project.ID
-		}
-	}
-	if projectCode == "" {
-		projectCode = m.effectiveProjectCode()
-	}
-	for _, cs := range m.cfg.GetCustomStates(projectCode) {
-		if strings.EqualFold(cs, state) {
-			inCustomStates = true
-			break
-		}
-	}
-	if inCustomStates {
-		// Must be in FilteredStates
-		found := false
-		for _, fs := range m.cfg.GetFilteredStates(projectCode) {
-			if strings.EqualFold(fs, state) {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return false
-		}
-	}
-
-	priority := issue.Priority()
-	// Check if priority is in CustomPriorities
-	inCustomPriorities := false
-	for _, cp := range m.cfg.GetCustomPriorities(projectCode) {
-		if strings.EqualFold(cp, priority) {
-			inCustomPriorities = true
-			break
-		}
-	}
-	if inCustomPriorities {
-		// Must be in FilteredPriorities
-		found := false
-		for _, fp := range m.cfg.GetFilteredPriorities(projectCode) {
-			if strings.EqualFold(fp, priority) {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return false
-		}
-	}
-
-	return true
+	return !excludedValue(m.excludedStates, issue.State()) && !excludedValue(m.excludedPriorities, issue.Priority())
 }
 
 func compareIDs(idA, idB string) int {
@@ -725,7 +663,12 @@ func (m *issuesModel) initProject(projectCode string, isBack bool) tea.Cmd {
 }
 
 func (m *issuesModel) initContext(projectCode string, query string, isBack bool) tea.Cmd {
+	m.rememberFilters()
 	m.projectCode, m.query = projectCode, query
+	m.issueListFilters = m.filtersByView[issueFilterView{projectCode, query}]
+	m.searchInput.SetValue(m.issueListFilters.text)
+	m.searchInput.Blur()
+	m.searchMode = false
 	m.agileID, m.sprintID, m.boardName, m.sprintName = "", "", "", ""
 	m.filterMode, m.sortMode, m.actionMode = false, false, false
 	if strings.HasPrefix(query, "sprint:") {
@@ -735,8 +678,6 @@ func (m *issuesModel) initContext(projectCode string, query string, isBack bool)
 		}
 	}
 	if !isBack {
-		m.searchInput.SetValue("")
-		m.searchMode = false
 		m.lastSelectedIssueID = ""
 	}
 	return m.startContext(false)
@@ -778,21 +719,11 @@ func (m issuesModel) Update(msg tea.Msg) (issuesModel, tea.Cmd) {
 		if msg.contextKey != m.contextKey || msg.requestID != m.requestID || msg.metadataID != m.tagsRequestID || !m.sameServer() {
 			return m, nil
 		}
-		wasWaiting := m.tagScopeLoading && m.cfg != nil && len(m.cfg.FilteredTags) > 0
-		m.tagScopeLoading = false
-		m.tagScope, m.tagScopeErr = msg.scope, msg.scopeErr
-		m.tagScopeReady = msg.scopeErr == nil
-		if msg.withTags {
-			m.tagsLoading, m.tagsLoaded = false, msg.scopeErr == nil && msg.err == nil
-			m.tags, m.tagsErr = msg.tags, msg.err
-		}
+		m.tagsLoading, m.tagsLoaded = false, msg.err == nil
+		m.tags, m.tagsErr = msg.tags, msg.err
 		if m.filterMode && len(m.filterPanel.sections) > 3 {
 			m.filterPanel.sections[3].Options = m.availableTags()
 			m.filterPanel.clamp()
-		}
-		if wasWaiting {
-			cmd = m.restoreOrLoadIssues()
-			return m, cmd
 		}
 		return m, nil
 
@@ -984,6 +915,11 @@ func (m issuesModel) Update(msg tea.Msg) (issuesModel, tea.Cmd) {
 			return m, nil
 		}
 
+		if msg.String() == "ctrl+f" {
+			cmd = m.clearFilters()
+			return m, cmd
+		}
+
 		if m.filterMode {
 			if m.filterPanel.searchMode {
 				cmd = m.filterPanel.updateSearch(msg)
@@ -1024,7 +960,7 @@ func (m issuesModel) Update(msg tea.Msg) (issuesModel, tea.Cmd) {
 			return m, cmd
 		}
 
-		if m.loading && msg.String() != "F" && msg.String() != "r" && msg.String() != "esc" && msg.String() != "backspace" {
+		if m.loading && msg.String() != "f" && msg.String() != "F" && msg.String() != "r" && msg.String() != "esc" && msg.String() != "backspace" {
 			return m, nil
 		}
 
@@ -1056,7 +992,7 @@ func (m issuesModel) Update(msg tea.Msg) (issuesModel, tea.Cmd) {
 					return pushStateMsg{state: stateArticles, data: projectCode}
 				}
 			}
-		case "F":
+		case "f", "F":
 			cmd = m.openFilters()
 			return m, cmd
 		case "s":
@@ -1122,7 +1058,7 @@ func (m issuesModel) renderView() string {
 		return m.filterPanelView()
 	}
 	if m.err != nil {
-		return m.filterSummary() + "\n" + StyleErrorMessage.Render(fmt.Sprintf("Error: %v", m.err)) + "\n[F] Change filters  [r] Retry  [Esc] Back"
+		return m.filterSummary() + "\n" + StyleErrorMessage.Render(fmt.Sprintf("Error: %v", m.err)) + "\n[f] Filters  [Ctrl+f] Clear filters  [r] Retry  [Esc] Back"
 	}
 
 	if m.loading {

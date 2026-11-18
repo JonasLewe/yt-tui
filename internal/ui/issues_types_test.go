@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -94,7 +92,7 @@ func TestTypeFilterCancelAndSave(t *testing.T) {
 	m.openFilters()
 	m.filterPanel.sections[2].Selected["Epic"] = true
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
-	if len(m.cfg.GetFilteredTypes("DEMO")) != 0 || m.filterMode {
+	if len(m.selectedTypes) != 0 || m.filterMode {
 		t.Fatal("cancel applied draft")
 	}
 	m.openFilters()
@@ -104,8 +102,8 @@ func TestTypeFilterCancelAndSave(t *testing.T) {
 		t.Fatal("save did not start typed query")
 	}
 	saved, err := config.LoadConfig()
-	if err != nil || !slices.Equal(saved.GetFilteredTypes("DEMO"), []string{"Epic", "Story"}) {
-		t.Fatalf("selection not persisted: %v", err)
+	if err != nil || len(saved.GetFilteredTypes("DEMO")) != 0 {
+		t.Fatalf("session selection persisted: %v", err)
 	}
 	m.openFilters()
 	clear(m.filterPanel.sections[2].Selected)
@@ -115,24 +113,13 @@ func TestTypeFilterCancelAndSave(t *testing.T) {
 	}
 }
 
-func TestTypeFilterSaveFailureDoesNotApplyDraft(t *testing.T) {
+func TestInvalidTypeDoesNotApplyOtherDraftSelections(t *testing.T) {
 	m := typeFilterModel(t)
-	before := append([]string(nil), m.cfg.GetFilteredStates("DEMO")...)
-	path := filepath.Join(os.Getenv("HOME"), ".config", "yt-tui", "config.json")
-	if err := os.Remove(path); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Mkdir(path, 0700); err != nil {
-		t.Fatal(err)
-	}
 	m.openFilters()
 	clear(m.filterPanel.sections[0].Selected)
-	m.filterPanel.sections[2].Selected = selection([]string{"Epic"})
-	if cmd := m.saveFilters(); cmd != nil {
-		t.Fatal("failed save launched request")
-	}
-	if !m.filterMode || m.filterError == "" || !slices.Equal(before, m.cfg.GetFilteredStates("DEMO")) || len(m.cfg.GetFilteredTypes("DEMO")) > 0 {
-		t.Fatal("failed save applied part of the draft")
+	m.filterPanel.sections[2].Selected = selection([]string{"bad{type"})
+	if cmd := m.saveFilters(); cmd != nil || m.filterError == "" || !m.filterMode || len(m.excludedStates) > 0 || len(m.selectedTypes) > 0 {
+		t.Fatal("invalid type partially applied the draft")
 	}
 }
 
@@ -166,7 +153,6 @@ func TestTypeFilterRejectsStaleResponsesAndSeparatesCaches(t *testing.T) {
 
 func TestTypeMetadataFailureCannotSilentlyRemoveSavedFilter(t *testing.T) {
 	m := typeFilterModel(t)
-	m.cfg.SetFilteredTypes("DEMO", []string{"Epic"})
 	m.selectedTypes = []string{"Epic"}
 	m.typeInfoErr = errors.New("permission denied")
 	if cmd := m.restoreOrLoadIssues(); cmd != nil || m.err == nil || m.loading {
@@ -174,7 +160,6 @@ func TestTypeMetadataFailureCannotSilentlyRemoveSavedFilter(t *testing.T) {
 	}
 	m.openFilters()
 	clear(m.filterPanel.sections[2].Selected)
-	m.cfg.SetFilteredTypes("DEMO", []string{"Epic"})
 	m.saveFilters()
 	if m.err != nil || len(m.selectedTypes) > 0 {
 		t.Fatal("All types did not recover from metadata failure")
@@ -220,13 +205,16 @@ func TestProjectTypeFilteringBeforeLimitAndLocalFilters(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg.PageSize, cfg.MaxIssues = 2, 3
-	cfg.SetFilteredTypes("0-1", []string{"Story", "Epic"})
 	client := ytcli.NewClient()
 	client.SetCredentials(server.URL, "test-token")
 	m := newIssuesModel(client, cfg)
 	m.width, m.height = 110, 24
 	cmd := m.initProject("0-1", false)
 	m = runIssueCommands(t, m, cmd)
+	offsets, issueQueries = nil, nil
+	m.openFilters()
+	m.filterPanel.sections[2].Selected = selection([]string{"Story", "Epic"})
+	m = runIssueCommands(t, m, m.saveFilters())
 	if m.err != nil || len(m.issues) != 3 || !m.limitReached {
 		t.Fatalf("filtered load failed: issues=%d limit=%v error=%v", len(m.issues), m.limitReached, m.err)
 	}
@@ -243,8 +231,7 @@ func TestProjectTypeFilteringBeforeLimitAndLocalFilters(t *testing.T) {
 	if len(m.table.Rows()) != 1 || m.visibleIssueIDs[0] != "DEMO-501" {
 		t.Fatal("local text filter failed with server filter")
 	}
-	m.cfg.SetFilteredStates("0-1", []string{})
-	m.cfg.SetFilteredStates("DEMO", []string{})
+	m.excludedStates = []string{m.issues[0].State()}
 	m.updateTableRows()
 	if len(m.table.Rows()) != 0 {
 		t.Fatal("state filter did not combine with type/text")
@@ -261,7 +248,7 @@ func TestProjectTypeFilteringBeforeLimitAndLocalFilters(t *testing.T) {
 	}
 }
 
-func TestTypeProjectAliasesUseOneCanonicalConfiguration(t *testing.T) {
+func TestTypeProjectAliasesShareSessionFilterAndRespectFieldConfiguration(t *testing.T) {
 	for _, entry := range []string{"DEMO", "0-1"} {
 		t.Run(entry, func(t *testing.T) {
 			m := typeFilterModel(t)
@@ -296,27 +283,17 @@ func TestTypeProjectAliasesUseOneCanonicalConfiguration(t *testing.T) {
 			if m.err != nil {
 				t.Fatal(m.err)
 			}
-			if query := <-queries; !strings.Contains(query, "Category: {Initiative}") {
-				t.Fatalf("alias filter lost: %q", query)
+			if query := <-queries; strings.Contains(query, "Category:") {
+				t.Fatalf("fresh session applied an old restriction: %q", query)
 			}
 			if got := m.table.Rows()[0][1]; got != "Initiative" {
 				t.Fatalf("alias display = %q", got)
 			}
-			if !slices.Equal(m.selectedTypes, []string{"Initiative"}) {
-				t.Fatalf("alias selection = %v", m.selectedTypes)
-			}
 			m.openFilters()
-			clear(m.filterPanel.sections[2].Selected)
-			cmd = m.saveFilters()
-			m = runIssueCommands(t, m, cmd)
-			if query := <-queries; strings.Contains(query, "Category:") {
-				t.Fatalf("All retained constraint: %q", query)
-			}
-			if _, exists := m.cfg.FilteredTypes["0-1"]; exists {
-				t.Fatal("old alias selection survived canonical save")
-			}
-			if value, exists := m.cfg.FilteredTypes["DEMO"]; !exists || len(value) != 0 {
-				t.Fatal("All did not override inherited default")
+			m.filterPanel.sections[2].Selected = selection([]string{"Initiative"})
+			m = runIssueCommands(t, m, m.saveFilters())
+			if query := <-queries; !strings.Contains(query, "Category: {Initiative}") {
+				t.Fatalf("missing selected type: %q", query)
 			}
 			other := "0-1"
 			if entry == other {
@@ -324,8 +301,8 @@ func TestTypeProjectAliasesUseOneCanonicalConfiguration(t *testing.T) {
 			}
 			cmd = m.initProject(other, false)
 			m = runIssueCommands(t, m, cmd)
-			if m.err != nil || len(m.selectedTypes) != 0 {
-				t.Fatalf("All changed on alias navigation: %v, %v", m.selectedTypes, m.err)
+			if m.err != nil || !slices.Equal(m.selectedTypes, []string{"Initiative"}) {
+				t.Fatalf("lost session filter on alias navigation: %v, %v", m.selectedTypes, m.err)
 			}
 		})
 	}
@@ -376,7 +353,7 @@ func TestTypeMetadataRejectsOldContextGenerationAndServer(t *testing.T) {
 
 func TestTypeFilterCombinesBaseORQueryExplicitly(t *testing.T) {
 	m := typeFilterModel(t)
-	m.cfg.SetFilteredTypes("DEMO", []string{"Epic"})
+	m.selectedTypes = []string{"Epic"}
 	m.query = "State: Open or Priority: Critical"
 	m.restoreOrLoadIssues()
 	if want := "(State: Open or Priority: Critical) and (Type: {Epic})"; m.serverQuery != want {
@@ -400,8 +377,7 @@ func TestPendingMetadataUpdatesOnlyUntouchedTypeDraft(t *testing.T) {
 			m := typeFilterModel(t)
 			resolved := m.typeInfo
 			m.typeInfo = ytcli.IssueTypeInfo{}
-			m.cfg.FilteredTypes = map[string][]string{"0-1": {"Epic"}}
-			m.selectedTypes = nil
+			m.selectedTypes = []string{"epic"}
 			m.openFilters()
 			if edited {
 				m.filterPanel.sections[2].Selected = selection([]string{"Story"})
@@ -421,34 +397,25 @@ func TestPendingMetadataUpdatesOnlyUntouchedTypeDraft(t *testing.T) {
 	}
 }
 
-func TestExplicitClearWhileProjectDetailsAreLoading(t *testing.T) {
+func TestClearFiltersRejectsOldMetadataAndPage(t *testing.T) {
 	m := tagFilterModel(t)
-	info := m.typeInfo
-	m.typeInfo, m.typeInfoLoading = ytcli.IssueTypeInfo{}, true
-	m.cfg.SetFilteredTypes("0-1", []string{"Epic"})
-	m.cfg.SetFilteredTags(m.tagScope, "0-1", []string{"backend"})
+	m.selectedTypes, m.selectedTags = []string{"Epic"}, []string{"backend"}
+	m.excludedStates, m.excludedPriorities = []string{"Open"}, []string{"Major"}
+	m.searchInput.SetValue("needle")
 	m.openFilters()
-	for _, section := range []int{2, 3} {
-		m.filterPanel.section, m.filterPanel.cursor = section, 0
-		m.filterPanel.toggle()
-	}
-	if cmd := m.saveFilters(); cmd != nil || !m.filterMode {
-		t.Fatal("saving before project resolution discarded the draft")
-	}
-	m, _ = m.Update(issueTypesMsg{key: m.typeKey(), requestID: m.requestID, info: info})
-	m.saveFilters()
-	saved, err := config.LoadConfig()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if m.filterMode || len(saved.GetFilteredTypes("DEMO", "0-1")) != 0 || len(saved.GetFilteredTags(m.tagScope, "DEMO", "0-1")) != 0 {
-		t.Fatal("project details arriving during editing overwrote explicit clears")
+	oldType := issueTypesMsg{key: m.typeKey(), requestID: m.requestID, err: errors.New("old request")}
+	oldPage := issuesDataMsg{context: m.cacheKey(), requestID: m.requestID, limit: 20, issues: []ytcli.Issue{typedIssue("1", "Epic")}}
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlF})
+	m, _ = m.Update(oldType)
+	m, _ = m.Update(oldPage)
+	if m.filterMode || m.searchInput.Value() != "" || m.serverQuery != m.query || len(m.excludedStates)+len(m.excludedPriorities)+len(m.selectedTypes)+len(m.selectedTags) > 0 || len(m.issues) > 0 || m.typeInfoErr != nil {
+		t.Fatal("clear failed or a stale response undid it")
 	}
 }
 
 func TestTypeChoicesCanonicalizeSavedCaseWithoutDuplicates(t *testing.T) {
 	m := typeFilterModel(t)
-	m.cfg.SetFilteredTypes("DEMO", []string{"epic", "EPIC", "Archived Kind"})
+	m.selectedTypes = []string{"epic", "EPIC", "Archived Kind"}
 	m.restoreOrLoadIssues()
 	m.openFilters()
 	if !slices.Equal(m.selectedTypes, []string{"Archived Kind", "Epic"}) {
@@ -463,27 +430,13 @@ func TestTypeChoicesCanonicalizeSavedCaseWithoutDuplicates(t *testing.T) {
 	}
 }
 
-func TestUnresolvedProjectCannotBypassAnIDKeyedSavedFilter(t *testing.T) {
+func TestUnresolvedProjectDoesNotActivateAnOldFilter(t *testing.T) {
 	m := typeFilterModel(t)
 	m.cfg.FilteredTypes = map[string][]string{"0-1": {"Epic"}}
 	m.typeInfo = ytcli.IssueTypeInfo{}
 	m.typeInfoErr = errors.New("project metadata unavailable")
-	if cmd := m.restoreOrLoadIssues(); cmd != nil || m.err == nil {
-		t.Fatal("unresolved alias silently loaded unfiltered issues")
-	}
-	m.openFilters()
-	m.filterPanel.section, m.filterPanel.cursor = 2, 0
-	m.filterPanel.toggle()
-	m.saveFilters()
-	saved, err := config.LoadConfig()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if types, ok := saved.FilteredTypes["DEMO"]; !ok || len(types) != 0 {
-		t.Fatalf("explicit All was not saved for DEMO: %v", saved.FilteredTypes)
-	}
-	if !slices.Equal(saved.FilteredTypes["0-1"], []string{"Epic"}) {
-		t.Fatal("clearing DEMO modified an unresolved project")
+	if cmd := m.restoreOrLoadIssues(); cmd == nil || m.err != nil || len(m.selectedTypes) != 0 {
+		t.Fatal("legacy filtered_types prevented unfiltered browsing")
 	}
 }
 
