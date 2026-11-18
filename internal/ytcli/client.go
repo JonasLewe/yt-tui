@@ -1367,7 +1367,7 @@ func (c *Client) getProjectIDByShortName(shortName string) (string, error) {
 }
 
 // CreateIssue creates a new issue and returns its readable ID.
-func (c *Client) CreateIssue(projectID, summary, description, priority, issueType, assignee string) (string, error) {
+func (c *Client) CreateIssue(projectID, summary, description, priority, issueType, assignee string, options ...IssueCreateOption) (string, error) {
 	if c.baseURL == "" || c.token == "" {
 		return "", errors.New("missing YouTrack connection URL or token")
 	}
@@ -1432,6 +1432,9 @@ func (c *Client) CreateIssue(projectID, summary, description, priority, issueTyp
 	}
 	apiURL := baseURL + "api/issues?fields=id,idReadable"
 
+	for _, option := range options {
+		option(payload)
+	}
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
 		return "", err

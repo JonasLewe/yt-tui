@@ -640,14 +640,7 @@ func (m formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 					isClone := m.isClone
 					cloneIssueID := m.cloneIssueID
 					return m, func() tea.Msg {
-						id, err := m.client.CreateIssue(
-							proj,
-							sum,
-							m.descTextArea.Value(),
-							priority,
-							issueType,
-							m.assigneeInput.Value(),
-						)
+						id, err := m.createIssue(proj, sum, priority, issueType)
 						if err != nil {
 							return formSubmittedMsg{issueID: id, err: err}
 						}
