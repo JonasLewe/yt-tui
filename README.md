@@ -80,7 +80,7 @@ Ensure `$HOME/.local/bin` is on your `PATH` before launching `yt-tui` from anoth
 
 ### Updating an Existing Installation
 
-Pulling source changes does not replace an installed binary. Fully exit running TUI sessions with `Q` before updating, so an older process cannot save its previous configuration format. In your existing checkout, use `main` and build into the executable path used by your shell. The former `personal/combined` integration branch is retained for existing checkouts; new development and installations use `main`.
+Pulling source changes does not replace an installed binary. Fully exit running TUI sessions with `Q` before updating, so an older process cannot save its previous configuration format. In your existing checkout, use `main` and build into the executable path used by your shell.
 
 ```bash
 git switch main &&
@@ -490,7 +490,7 @@ Native tags appear as a wrapped list in the scrollable Description pane, so long
 
 ## Development Workflow
 
-`main` is this fork's stable development and installation branch. Start focused `feat/*` and `fix/*` branches from an up-to-date `main`, then open pull requests back to `main`. Before merging, run the checks below and a build; exercise the affected TUI flow when behavior changes. `personal/combined` remains available for existing checkouts; new work targets `main`.
+`main` is this fork's stable development and installation branch. Start focused `feat/*`, `fix/*`, or `docs/*` branches from an up-to-date `main`, then open pull requests back to `main`. Before merging, run the checks below and a build; exercise the affected TUI flow when behavior changes. Delete working branches after their changes are fully merged into `main`.
 
 ### Continuous Integration
 
