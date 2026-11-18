@@ -234,7 +234,7 @@ func TestProjectTypeFilteringBeforeLimitAndLocalFilters(t *testing.T) {
 		t.Fatalf("pagination wrong: %v", offsets)
 	}
 	for _, q := range issueQueries {
-		if !strings.Contains(q, "project: 0-1 Type: {Epic}, {Story}") {
+		if q != "(project: 0-1) and (Type: {Epic}, {Story})" {
 			t.Fatalf("query=%q", q)
 		}
 	}

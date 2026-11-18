@@ -556,14 +556,16 @@ func (c *Client) ListIssues(projectID string, query string, limit int, skip int)
 		baseURL += "/"
 	}
 
-	var parts []string
+	fullQuery := query
 	if projectID != "" {
-		parts = append(parts, "project: "+projectID)
+		fullQuery = "project: " + projectID
+		if query != "" {
+			// YouTrack requires an explicit operator beside a parenthesized
+			// expression. Group the complete query so every OR alternative
+			// remains restricted to the selected project.
+			fullQuery = "(" + fullQuery + ") and (" + query + ")"
+		}
 	}
-	if query != "" {
-		parts = append(parts, query)
-	}
-	fullQuery := strings.Join(parts, " ")
 
 	params := url.Values{}
 	params.Set("fields", "id,idReadable,summary,description,project(id,name,shortName),customFields(id,name,value(id,name,fullName,login,presentation,text),$type),comments(id,text,created,author(login,fullName,email)),reporter(login,fullName,email),tags("+tagFields+"),created,updated,updater(login,fullName,email)")
