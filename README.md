@@ -1,5 +1,7 @@
 # 🎛️ YouTrack Terminal User Interface (TUI)
 
+[![CI](https://github.com/JonasLewe/yt-tui/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/JonasLewe/yt-tui/actions/workflows/test.yml)
+
 This is [JonasLewe's fork](https://github.com/JonasLewe/yt-tui) of [nospor/yt-tui](https://github.com/nospor/yt-tui). Its `main` branch is the maintained default and includes project type/tag filters, configuration defaults with personal overrides, the assignee and external-editor fixes, Knowledge Base browsing/editing, numbered panels, and optional integration with [yt-tui.nvim](https://github.com/JonasLewe/yt-tui.nvim). The application also runs independently of Neovim.
 
 A sleek, keyboard-driven terminal dashboard for JetBrains YouTrack, written in Go using the **Bubble Tea** framework. It communicates directly with the YouTrack REST API to provide high-performance, asynchronous, and interactive issue management without requiring any external Python CLI.
@@ -49,47 +51,46 @@ If you choose to build the project from source, you will need:
 
 ## 🛠️ Installation & Building
 
-### 📦 Upstream Pre-built Binaries
+### 📦 Binary Availability
 
-The original project's pre-compiled binaries are available from [upstream releases](https://github.com/nospor/yt-tui/releases). Those binaries do not include this fork's additions. To use the features described above, build this fork from source below; publishing its source does not create a binary release.
-
-1. Go to [Releases](https://github.com/nospor/yt-tui/releases) and download the archive matching your operating system and architecture (Linux, macOS, Windows; AMD64/ARM64).
-2. Extract the downloaded archive.
-3. (Optional) Copy the `yt-tui` binary to a directory in your `PATH` (e.g., `/usr/local/bin/` on Linux/macOS) to run it from anywhere.
+This fork has not published its own binary release yet. Build from `main` below to get the features described in this README. The original project's [upstream releases](https://github.com/nospor/yt-tui/releases) remain available, but do not include this fork's additions. See [Releases](#releases) for the fork's delivery workflow and current status.
 
 ### 🛠️ Build This Fork from Source
 
-If you have Go installed, you can build the application manually:
+Build a binary whose `--version` output identifies the source commit:
 
 ```bash
-git clone https://github.com/JonasLewe/yt-tui.git
-cd yt-tui
-git switch main
-
-# to quickly build
-go build -o yt-tui .
-
-# or (builds slower, but binary is smaller)
-go build -trimpath -ldflags="-s -w" -o yt-tui .
-
-# then run
-./yt-tui
-
-# you may also want to copy the binary to your PATH (and run it from any place), e.g.:
-sudo cp yt-tui /usr/local/bin/
+git clone https://github.com/JonasLewe/yt-tui.git &&
+cd yt-tui &&
+git switch main &&
+go build -trimpath \
+  -ldflags "-s -w -X main.version=dev-$(git rev-parse --short=8 HEAD)" \
+  -o yt-tui . &&
+./yt-tui --version
 ```
+
+Run `./yt-tui` to launch it. On Linux/macOS, you can install it into a user-writable directory on your `PATH`, for example:
+
+```bash
+mkdir -p "$HOME/.local/bin" &&
+cp yt-tui "$HOME/.local/bin/yt-tui"
+```
+
+Ensure `$HOME/.local/bin` is on your `PATH` before launching `yt-tui` from another directory or from Neovim.
 
 ### Updating an Existing Installation
 
 Pulling source changes does not replace an installed binary. Fully exit running TUI sessions with `Q` before updating, so an older process cannot save its previous configuration format. In your existing checkout, use `main` and build into the executable path used by your shell. The former `personal/combined` integration branch is retained for existing checkouts; new development and installations use `main`.
 
 ```bash
-git switch main
-git pull --ff-only
-yt_tui_executable="$(command -v yt-tui)"
+git switch main &&
+git pull --ff-only &&
+yt_tui_executable="$(command -v yt-tui)" &&
 test -n "$yt_tui_executable" &&
-  go build -ldflags "-X main.version=dev-$(git rev-parse --short=8 HEAD)" -o "$yt_tui_executable" . &&
-  "$yt_tui_executable" --version
+go build -trimpath \
+  -ldflags "-s -w -X main.version=dev-$(git rev-parse --short=8 HEAD)" \
+  -o "$yt_tui_executable" . &&
+"$yt_tui_executable" --version
 ```
 
 The target must be writable by your user. In Neovim, check its actual executable path with `:lua print(vim.fn.exepath('yt-tui'))`; if this differs from your shell, use that path for `-o` instead. Then run `:YtTuiRestart` so the integration launches the new binary. `:YtTui`, toggling the window, or hiding it with `q` resumes the existing process.
@@ -489,7 +490,32 @@ Native tags appear as a wrapped list in the scrollable Description pane, so long
 
 ## Development Workflow
 
-`main` is this fork's stable development and installation branch. Start focused `feat/*` and `fix/*` branches from an up-to-date `main`, then open pull requests back to `main`. Before merging, run the format check, `go vet ./...`, `go test -race ./...`, and a build; exercise the affected TUI flow when behavior changes. The GitHub test workflow runs for pull requests to `main` and pushes to `main`.
+`main` is this fork's stable development and installation branch. Start focused `feat/*` and `fix/*` branches from an up-to-date `main`, then open pull requests back to `main`. Before merging, run the checks below and a build; exercise the affected TUI flow when behavior changes. `personal/combined` remains available for existing checkouts; new work targets `main`.
+
+### Continuous Integration
+
+The active [Test workflow](.github/workflows/test.yml) runs on pull requests targeting `main` and pushes to `main`. [Workflow runs](https://github.com/JonasLewe/yt-tui/actions/workflows/test.yml) show the results. It uses GitHub's `ubuntu-latest` runner and the Go version declared in [go.mod](go.mod).
+
+| Check | Purpose |
+| --- | --- |
+| `gofmt -l .` | Fails the job if any Go source files need formatting. |
+| `go vet ./...` | Checks all packages for common programming mistakes. |
+| `go test -v -race ./...` | Runs all Go tests and checks the executed test paths for data races. |
+
+The suite covers configuration defaults and migration, saved filters, combined Type/Tag queries, pagination, asynchronous responses, keyboard handling, and file selection. Tests use isolated configuration and local HTTP servers instead of a real YouTrack account. CI currently tests on Linux; full interactive terminal smoke tests are performed separately. The test job compiles the packages for testing but does not publish a binary.
+
+The Test and Release workflows use checkout and Go-setup actions with native Node.js 24 support. Node.js is used by GitHub Actions and is not a local installation requirement for yt-tui.
+
+Run the checks and an additional build locally with:
+
+```bash
+test -z "$(gofmt -l .)" &&
+go vet ./... &&
+go test -race ./... &&
+go build -o yt-tui .
+```
+
+### Upstream Updates
 
 Track the original project separately as `upstream`. In a checkout without that remote, configure it once:
 
@@ -497,9 +523,13 @@ Track the original project separately as `upstream`. In a checkout without that 
 git remote add upstream https://github.com/nospor/yt-tui.git
 ```
 
-For upstream updates, fetch the original repository, create a temporary `sync/*` branch from `main`, and merge the desired upstream changes there. Resolve conflicts and run the same checks before opening a pull request to `main`. Preserve the fork's features and existing commit history when integrating upstream changes. `personal/combined` is a compatibility branch, not the target for new feature work.
+For upstream updates, fetch the original repository, create a temporary `sync/*` branch from `main`, and merge the desired upstream changes there. Resolve conflicts and run the same checks before opening a pull request to `main`. Preserve the fork's features and existing commit history when integrating upstream changes.
 
-Merging to `main` does not publish binaries. Fork releases are a separate step triggered by version tags after the release workflow has been reviewed.
+### Releases
+
+Merging to `main` runs CI; binary releases are a separate maintainer operation. The existing [Release workflow](.github/workflows/release.yml) starts when a `v*` tag is pushed. [GoReleaser](.goreleaser.yaml) builds Linux, macOS, and Windows binaries for AMD64 and ARM64, embeds the release version, and publishes archives plus `checksums.txt` as GitHub release assets.
+
+The fork has no published binary releases yet. The current release workflow runs independently of the Test workflow and does not enforce a successful test result. Before the first fork release, it needs a test gate and updated release-note/changelog handling: the inherited [cliff.toml](cliff.toml) still links to upstream, and the workflow currently commits the generated changelog directly to `main`. Follow [this fork's releases](https://github.com/JonasLewe/yt-tui/releases) for future downloads; releases do not automatically update installed copies.
 
 ## License
 
