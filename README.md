@@ -488,10 +488,6 @@ Native tags appear as a wrapped list in the scrollable Description pane, so long
 * `Ctrl+s` (or `Enter` on text inputs): Submit the form and save/create/clone the issue.
 * `Esc`: Cancel and discard changes.
 
-## Backlog
-
-- **Issue description templates.** When creating an issue, prefill the description with the team’s editable Markdown template. First confirm how the project supplies it in YouTrack (for example, through a shared template URL or a workflow). Preserve text already entered in the draft.
-
 ## Development Workflow
 
 `main` is this fork's stable development and installation branch. Start focused `feat/*`, `fix/*`, or `docs/*` branches from an up-to-date `main`, then open pull requests back to `main`. Before merging, run the checks below and a build; exercise the affected TUI flow when behavior changes. Delete working branches after their changes are fully merged into `main`.
@@ -534,6 +530,10 @@ For upstream updates, fetch the original repository, create a temporary `sync/*`
 Merging to `main` runs CI; binary releases are a separate maintainer operation. The existing [Release workflow](.github/workflows/release.yml) starts when a `v*` tag is pushed. [GoReleaser](.goreleaser.yaml) builds Linux, macOS, and Windows binaries for AMD64 and ARM64, embeds the release version, and publishes archives plus `checksums.txt` as GitHub release assets.
 
 The fork has no published binary releases yet. The current release workflow runs independently of the Test workflow and does not enforce a successful test result. Before the first fork release, it needs a test gate and updated release-note/changelog handling: the inherited [cliff.toml](cliff.toml) still links to upstream, and the workflow currently commits the generated changelog directly to `main`. Follow [this fork's releases](https://github.com/JonasLewe/yt-tui/releases) for future downloads; releases do not automatically update installed copies.
+
+## Backlog
+
+- **Issue description templates.** When creating an issue, prefill the description with the team’s editable Markdown template. First confirm how the project supplies it in YouTrack (for example, through a shared template URL or a workflow). Preserve text already entered in the draft.
 
 ## License
 
