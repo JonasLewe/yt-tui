@@ -95,6 +95,12 @@ You can launch `yt-tui` without any parameters to open the welcome screen or the
 yt-tui
 ```
 
+### Create an issue
+
+1. Open a project's issue list and press `n`. Enter a summary.
+2. Leave **Assignee** empty to create the issue unassigned. Pressing `Tab` moves past an empty field. To assign someone, type their name and choose a suggestion with `Enter`, or enter `me`. Projects that require an assignee prompt you to choose one.
+3. Press `Ctrl+s` to create the issue.
+
 ### Direct Issue Link Loading
 You can also launch `yt-tui` directly with a YouTrack issue URL as an argument:
 
