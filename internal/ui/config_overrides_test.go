@@ -61,8 +61,8 @@ func TestSavingIssueFiltersKeepsFutureColumnDefaultsLive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Contains(reloaded.Fields, "Updated") || !slices.Equal(reloaded.GetFilteredTypes("DEMO"), []string{"Epic"}) {
-		t.Fatal("saved filter prevented new defaults or lost its own selection")
+	if !slices.Contains(reloaded.Fields, "Updated") || len(reloaded.GetFilteredTypes("DEMO")) != 0 {
+		t.Fatal("session filter was persisted or prevented new defaults")
 	}
 	if !slices.Contains(reloaded.GetFilteredStates("DEMO"), "Reviewed") {
 		t.Fatal("changing only Type prevented inheritance of a new state")
@@ -96,32 +96,34 @@ func TestUnchangedIssueFiltersDoNotCreateOverrides(t *testing.T) {
 	}
 }
 
-func TestAllTypesOverridesAnInheritedRestriction(t *testing.T) {
+func TestIssueFiltersIgnoreLegacyOverridesAndKeepFileIntact(t *testing.T) {
 	m := typeFilterModel(t)
 	m.cfg.SetFilteredTypes("default", []string{"Epic"})
+	m.cfg.SetFilteredTags("example#user", "DEMO", []string{"legacy"})
+	m.cfg.SetFilteredStates("DEMO", []string{})
+	m.cfg.SetFilteredPriorities("DEMO", []string{})
 	if err := config.SaveConfig(m.cfg); err != nil {
 		t.Fatal(err)
 	}
-	m.selectedTypes = []string{"Epic"}
+	before := storedUserConfig(t)
+	m.initProject("DEMO", false)
 	m.openFilters()
-	clear(m.filterPanel.sections[2].Selected)
+	for i := 0; i < 2; i++ {
+		s := m.filterPanel.sections[i]
+		if len(selectedValues(s.Options, s.Selected)) != len(s.Options) {
+			t.Fatalf("applied legacy %s restriction", s.Title)
+		}
+	}
+	if len(m.selectedTypes)+len(m.selectedTags) != 0 {
+		t.Fatal("server filters restored on startup")
+	}
+	m.filterPanel.sections[2].Selected = selection([]string{"Story"})
 	m.saveFilters()
-	if m.filterError != "" {
-		t.Fatal(m.filterError)
-	}
-	var types map[string][]string
-	if err := json.Unmarshal(storedUserConfig(t)["filtered_types"], &types); err != nil {
-		t.Fatal(err)
-	}
-	if project, exists := types["DEMO"]; !exists || project == nil || len(project) != 0 {
-		t.Fatal("All types did not persist an explicit empty project selection")
-	}
-	if !slices.Equal(types["default"], []string{"Epic"}) {
-		t.Fatal("project All types changed the inherited default filter")
-	}
-	reloaded, err := config.LoadConfig()
-	if err != nil || len(reloaded.GetFilteredTypes("DEMO")) != 0 {
-		t.Fatalf("All types did not survive reload: %v", err)
+	m.clearFilters()
+	for key, raw := range before {
+		if string(storedUserConfig(t)[key]) != string(raw) {
+			t.Fatalf("changed legacy configuration %s", key)
+		}
 	}
 }
 
@@ -156,37 +158,16 @@ func TestSavingIssueFiltersPreservesExplicitColumns(t *testing.T) {
 	}
 }
 
-func TestFailedFilterSaveDoesNotLeakDraftOverridesIntoNextSave(t *testing.T) {
+func TestSessionFiltersDoNotLeakIntoUnrelatedConfigSave(t *testing.T) {
 	m := typeFilterModel(t)
 	m.cfg.SetFilteredTypes("DEMO", []string{"Epic"})
 	if err := config.SaveConfig(m.cfg); err != nil {
-		t.Fatal(err)
-	}
-	m.selectedTypes = []string{"Epic"}
-	path := filepath.Join(os.Getenv("HOME"), ".config", "yt-tui", "config.json")
-	before, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Remove(path); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Mkdir(path, 0700); err != nil {
 		t.Fatal(err)
 	}
 	m.openFilters()
 	m.filterPanel.sections[2].Selected = selection([]string{"Story"})
 	clear(m.filterPanel.sections[0].Selected)
 	m.saveFilters()
-	if m.filterError == "" || !slices.Equal(m.cfg.GetFilteredTypes("DEMO"), []string{"Epic"}) {
-		t.Fatal("failed save applied the pending selection")
-	}
-	if err := os.Remove(path); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, before, 0600); err != nil {
-		t.Fatal(err)
-	}
 	m.cfg.RenderMarkdown = false
 	if err := config.SaveConfig(m.cfg, "render_markdown"); err != nil {
 		t.Fatal(err)
@@ -196,10 +177,10 @@ func TestFailedFilterSaveDoesNotLeakDraftOverridesIntoNextSave(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !slices.Equal(reloaded.GetFilteredTypes("DEMO"), []string{"Epic"}) || reloaded.RenderMarkdown {
-		t.Fatal("later save leaked the failed draft or lost its own change")
+		t.Fatal("unrelated setting save persisted a session filter or lost its own change")
 	}
 	if _, leaked := storedUserConfig(t)["filtered_states"]; leaked {
-		t.Fatal("failed draft left an explicit state filter behind")
+		t.Fatal("session state selection leaked into config")
 	}
 	assertInheritedSettingsNotStored(t, storedUserConfig(t))
 }

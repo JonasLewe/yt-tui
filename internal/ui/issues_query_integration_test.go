@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"yt-tui/internal/config"
 	"yt-tui/internal/ytcli"
 )
 
@@ -63,7 +62,6 @@ func TestCombinedTypeTagFilterHTTPQuery(t *testing.T) {
 			client := ytcli.NewClient()
 			client.SetCredentials(server.URL, "test-token")
 			m.client, m.serverURL, m.contextKey = client, server.URL, client.ContextKey()
-			m.tagScope = server.URL + "#user-1"
 			m.tags = []ytcli.Tag{{ID: "1", Name: "mind-v1"}, {ID: "2", Name: "needs review"}}
 			m.query = tc.baseQuery
 			m.typeInfoCache[m.typeKey()] = m.typeInfo
@@ -73,18 +71,10 @@ func TestCombinedTypeTagFilterHTTPQuery(t *testing.T) {
 			m = runIssueCommands(t, m, m.saveFilters())
 			assertCombinedQueryResult(t, m, queries, tc.wantQuery)
 
-			// Restoring the saved filter must use the same complete server query.
-			saved, err := config.LoadConfig()
-			if err != nil {
-				t.Fatal(err)
-			}
-			fresh := newIssuesModel(client, saved)
-			fresh.projectCode, fresh.query = "DEMO", tc.baseQuery
-			fresh.serverURL, fresh.contextKey = server.URL, client.ContextKey()
-			fresh.tagScope, fresh.tagScopeReady = m.tagScope, true
-			fresh.typeInfoCache[fresh.typeKey()] = m.typeInfo
-			fresh = runIssueCommands(t, fresh, fresh.startContext(false))
-			assertCombinedQueryResult(t, fresh, queries, tc.wantQuery)
+			// Reopening the same view within this process reuses the filter.
+			clear(m.cache)
+			m = runIssueCommands(t, m, m.initContext("DEMO", tc.baseQuery, true))
+			assertCombinedQueryResult(t, m, queries, tc.wantQuery)
 		})
 	}
 }

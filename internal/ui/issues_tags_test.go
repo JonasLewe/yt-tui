@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -23,14 +21,14 @@ import (
 func tagFilterModel(t *testing.T) issuesModel {
 	t.Helper()
 	m := typeFilterModel(t)
-	m.tagScope, m.tagScopeReady, m.tagsLoaded = "https://example.invalid#user-1", true, true
+	m.tagsLoaded = true
 	m.tags = []ytcli.Tag{{ID: "1", Name: "backend"}, {ID: "2", Name: "needs review"}, {ID: "3", Name: "backend"}}
 	return m
 }
 
 func TestTagsDraftSearchSaveAndSparseDefaults(t *testing.T) {
 	m := tagFilterModel(t)
-	m.cfg.SetFilteredTags(m.tagScope, "default", []string{"backend"})
+	m.selectedTags = []string{"backend"}
 	m.restoreOrLoadIssues()
 	m.openFilters()
 	m.filterPanel.section = 3
@@ -40,7 +38,7 @@ func TestTagsDraftSearchSaveAndSparseDefaults(t *testing.T) {
 	m.filterPanel.move("down")
 	m.filterPanel.toggle()
 	m.saveFilters()
-	if m.filterMode || !slices.Equal(m.cfg.GetFilteredTags(m.tagScope, "DEMO"), []string{"backend", "needs review"}) {
+	if m.filterMode || !slices.Equal(m.selectedTags, []string{"backend", "needs review"}) {
 		t.Fatalf("selection failed: %v / %s", m.selectedTags, m.filterError)
 	}
 	if !strings.Contains(m.serverQuery, "tag: {backend}, {needs review}") {
@@ -60,43 +58,29 @@ func TestTagsDraftSearchSaveAndSparseDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if names, ok := cfg.FilteredTags[m.tagScope]["DEMO"]; !ok || len(names) != 0 {
-		t.Fatal("No restriction must explicitly override inherited tags")
+	if len(cfg.FilteredTags) != 0 {
+		t.Fatal("tag selection persisted to config")
 	}
 	if m.serverQuery != "" {
 		t.Fatalf("clear left query %q", m.serverQuery)
 	}
 }
 
-func TestTagsSaveFailureKeepsAliasesAndDraft(t *testing.T) {
+func TestInvalidTagKeepsActiveSelectionAndDraft(t *testing.T) {
 	m := tagFilterModel(t)
-	m.cfg.SetFilteredTags(m.tagScope, "0-1", []string{"backend"})
-	m.restoreOrLoadIssues()
+	m.selectedTags = []string{"backend"}
 	m.openFilters()
-	m.filterPanel.sections[3].Selected = selection([]string{"needs review"})
-	path := filepath.Join(os.Getenv("HOME"), ".config", "yt-tui", "config.json")
-	if err := os.Remove(path); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Mkdir(path, 0700); err != nil {
-		t.Fatal(err)
-	}
-	if cmd := m.saveFilters(); cmd != nil || m.filterError == "" || !m.filterMode {
-		t.Fatal("failed save applied draft")
-	}
-	if !slices.Equal(m.cfg.GetFilteredTags(m.tagScope, "0-1"), []string{"backend"}) {
-		t.Fatal("failed save changed source alias")
-	}
-	if _, ok := m.cfg.FilteredTags[m.tagScope]["DEMO"]; ok {
-		t.Fatal("failed save added canonical entry")
+	m.filterPanel.sections[3].Selected = selection([]string{"invalid*"})
+	if cmd := m.saveFilters(); cmd != nil || m.filterError == "" || !m.filterMode || !slices.Equal(m.selectedTags, []string{"backend"}) {
+		t.Fatal("invalid tag applied or discarded the draft")
 	}
 }
 
 func TestTagsCombineWithTypeAndBaseQuery(t *testing.T) {
 	m := tagFilterModel(t)
 	m.query = "State: Open or Priority: Critical"
-	m.cfg.SetFilteredTypes("DEMO", []string{"Epic"})
-	m.cfg.SetFilteredTags(m.tagScope, "0-1", []string{"needs review", "backend"})
+	m.selectedTypes = []string{"Epic"}
+	m.selectedTags = []string{"backend", "needs review"}
 	m.restoreOrLoadIssues()
 	want := "((State: Open or Priority: Critical) and (Type: {Epic})) and (tag: {backend}, {needs review})"
 	if m.serverQuery != want {
@@ -109,7 +93,7 @@ func TestTagsCombineWithTypeAndBaseQuery(t *testing.T) {
 
 func TestTagCatalogueFailuresAndUnavailableNamesRetainRestriction(t *testing.T) {
 	m := tagFilterModel(t)
-	m.cfg.SetFilteredTags(m.tagScope, "DEMO", []string{"old name"})
+	m.selectedTags = []string{"old name"}
 	m.tagsErr = errors.New("forbidden")
 	m.restoreOrLoadIssues()
 	if m.serverQuery != "tag: {old name}" || m.err != nil {
@@ -125,55 +109,34 @@ func TestTagCatalogueFailuresAndUnavailableNamesRetainRestriction(t *testing.T) 
 	}
 }
 
-func TestTagAccountFailureBlocksSavedFilters(t *testing.T) {
+func TestClearOnlyAffectsCurrentList(t *testing.T) {
 	m := tagFilterModel(t)
-	m.cfg.SetFilteredTags(m.tagScope, "DEMO", []string{"backend"})
-	m.tagScopeReady = false
-	m.tagScopeErr = errors.New("cannot identify user")
-	if cmd := m.restoreOrLoadIssues(); cmd != nil || m.err == nil || m.loading {
-		t.Fatal("identity failure silently broadened query")
+	m.selectedTags, m.selectedTypes = []string{"backend"}, []string{"Story"}
+	m.searchInput.SetValue("first")
+	m.excludedStates, m.excludedPriorities = []string{"Closed"}, []string{"Low"}
+	m.initContext("", "reporter: me", false)
+	if m.searchInput.Value() != "" || len(m.excludedStates)+len(m.excludedPriorities)+len(m.selectedTypes)+len(m.selectedTags) != 0 {
+		t.Fatal("project filters leaked into reporter list")
 	}
-}
-
-func TestTagUnresolvedProjectAliasRequiresExplicitClear(t *testing.T) {
-	m := tagFilterModel(t)
-	m.cfg.SetFilteredTags(m.tagScope, "0-1", []string{"backend"})
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/api/admin/projects":
-			http.Error(w, "forbidden", http.StatusForbidden)
-		case "/api/issues":
-			fmt.Fprint(w, "[]")
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	defer server.Close()
-	m.client = ytcli.NewClient()
-	m.client.SetCredentials(server.URL, "test-token")
-	m.contextKey = m.client.ContextKey()
-	cmd := m.initProject("DEMO", false)
-	m = runIssueCommands(t, m, cmd)
-	if !m.unresolvedSavedTagFilter() || m.err == nil {
-		t.Fatal("unresolved alias widened filter")
+	m.searchInput.SetValue("mine")
+	m.clearFilters()
+	if m.serverQuery != "reporter: me" {
+		t.Fatal("clear discarded reporter constraint")
 	}
-	m.openFilters()
-	m.filterPanel.toggle() // Edit only the State section.
-	cmd = m.saveFilters()
-	m = runIssueCommands(t, m, cmd)
-	if _, ok := m.cfg.FilteredTags[m.tagScope]["DEMO"]; ok || !m.unresolvedSavedTagFilter() {
-		t.Fatal("saving an unrelated change removed the unresolved tag restriction")
+	m.initProject("DEMO", false)
+	if m.searchInput.Value() != "first" || !slices.Equal(m.selectedTags, []string{"backend"}) || !slices.Equal(m.selectedTypes, []string{"Story"}) || !slices.Equal(m.excludedStates, []string{"Closed"}) || !slices.Equal(m.excludedPriorities, []string{"Low"}) {
+		t.Fatal("clearing another list lost session filters")
 	}
-	m.openFilters()
-	m.filterPanel.section, m.filterPanel.cursor = 3, 0
-	m.filterPanel.toggle()
-	cmd = m.saveFilters()
-	m = runIssueCommands(t, m, cmd)
-	if m.err != nil || !m.loadedAll {
-		t.Fatalf("No restriction did not recover the issue list: %v", m.err)
+	m.clearFilters()
+	m.initContext("", "sprint:board:sprint:Board:Sprint", false)
+	m.searchInput.SetValue("mine")
+	m.clearFilters()
+	if m.agileID != "board" || m.sprintID != "sprint" {
+		t.Fatal("clear discarded board/sprint")
 	}
-	if names, ok := m.cfg.FilteredTags[m.tagScope]["DEMO"]; !ok || len(names) > 0 {
-		t.Fatal("clear wasn't saved")
+	m.initProject("DEMO", false)
+	if m.searchInput.Value() != "" || len(m.excludedStates)+len(m.excludedPriorities)+len(m.selectedTypes)+len(m.selectedTags) != 0 {
+		t.Fatal("cleared filters returned on navigation")
 	}
 }
 
@@ -233,7 +196,7 @@ func TestTagsFilterBeforeLimitWithLazyCompleteCatalogue(t *testing.T) {
 		t.Fatal("initial unfiltered browsing waited for tag metadata")
 	}
 	m = runIssueCommands(t, m, m.openFilters())
-	if len(m.availableTags()) != 2 || tagRequests != 3 || identityRequests != 1 {
+	if len(m.availableTags()) != 2 || tagRequests != 3 || identityRequests != 0 {
 		t.Fatalf("catalogue incomplete: %v requests %d/%d", m.availableTags(), tagRequests, identityRequests)
 	}
 	m.filterPanel.sections[3].Selected = selection([]string{"backend", "needs review"})
@@ -244,14 +207,14 @@ func TestTagsFilterBeforeLimitWithLazyCompleteCatalogue(t *testing.T) {
 	if !strings.Contains(queries[len(queries)-1], "tag: {backend}, {needs review}") {
 		t.Fatal("server query missing tags")
 	}
-	// A fresh model restores the account-scoped filter before requesting issues.
+	// A new process starts with an unrestricted query.
 	fresh := newIssuesModel(client, cfg)
 	fresh = runIssueCommands(t, fresh, fresh.initProject("0-1", false))
-	if fresh.err != nil || fresh.issues[0].IDReadable != "DEMO-501" {
-		t.Fatal("saved account filter not restored")
+	if fresh.err != nil || fresh.issues[0].IDReadable != "DEMO-1" {
+		t.Fatal("new model restored a tag restriction")
 	}
-	if tagRequests != 3 || identityRequests != 2 {
-		t.Fatal("restoring named filter should only resolve account, not catalogue")
+	if tagRequests != 3 || identityRequests != 0 {
+		t.Fatal("new session requested metadata for a stale filter")
 	}
 }
 
@@ -263,18 +226,20 @@ func TestTagsStaleRequestsAndSameServerAccountChanges(t *testing.T) {
 	m.contextKey = client.ContextKey()
 	m.serverURL = client.GetConfiguredBaseURL()
 	m.requestID = 3
-	old := issueTagsMsg{contextKey: m.contextKey, requestID: 3, scope: m.tagScope, withTags: true, tags: []ytcli.Tag{{ID: "99", Name: "secret"}}}
+	m.selectedTags = []string{"backend"}
+	m.searchInput.SetValue("private")
+	old := issueTagsMsg{contextKey: m.contextKey, requestID: 3, tags: []ytcli.Tag{{ID: "99", Name: "secret"}}}
 	client.SetCredentials("https://example.invalid", "two")
 	m, _ = m.Update(old)
 	if slices.Contains(m.availableTags(), "secret") {
 		t.Fatal("old account metadata accepted")
 	}
 	m.startContext(false)
-	if m.tagScopeReady || m.tagsLoaded || len(m.tags) > 0 {
+	if m.tagsLoaded || len(m.tags) > 0 || len(m.selectedTags) > 0 || m.searchInput.Value() != "" {
 		t.Fatal("previous account metadata reused")
 	}
 	m.openFilters()
-	stale := issueTagsMsg{contextKey: m.contextKey, requestID: m.requestID, scope: "other", withTags: true, tags: old.tags}
+	stale := issueTagsMsg{contextKey: m.contextKey, requestID: m.requestID, tags: old.tags}
 	m.initProject("OTHER", false)
 	if m.tagsLoading {
 		t.Fatal("stale pending catalogue survived context transition")
@@ -294,7 +259,7 @@ func TestTagCatalogueRefreshPreservesSearchAndDraft(t *testing.T) {
 	m.filterPanel.section = 3
 	m.filterPanel.sections[3].Selected = selection([]string{"needs review"})
 	m.filterPanel.sections[3].Search = "review"
-	m, _ = m.Update(issueTagsMsg{contextKey: m.contextKey, requestID: m.requestID, scope: m.tagScope, withTags: true, tags: []ytcli.Tag{{ID: "1", Name: "backend"}}})
+	m, _ = m.Update(issueTagsMsg{contextKey: m.contextKey, requestID: m.requestID, tags: []ytcli.Tag{{ID: "1", Name: "backend"}}})
 	section := m.filterPanel.sections[3]
 	if !section.Selected["needs review"] || section.Search != "review" || !slices.Contains(section.Options, "needs review") {
 		t.Fatal("metadata refresh lost draft/search")
@@ -327,62 +292,27 @@ func TestDetailTagsWrapWithoutLosingNames(t *testing.T) {
 	}
 }
 
-// Opening F while startup resolves the account supersedes the old scope-only
-// request. Both delivery orders must keep the latest identity/error state.
-func TestTagStartupAndCatalogueOverlapIgnoreOlderScope(t *testing.T) {
-	for _, olderFirst := range []bool{true, false} {
-		t.Run(fmt.Sprint(olderFirst), func(t *testing.T) {
-			m := tagFilterModel(t)
-			m.cfg.SetFilteredTags(m.tagScope, "DEMO", []string{"backend"})
-			scope := m.tagScope
-			m.tagScopeReady = false
-			m.startContext(false)
-			old := issueTagsMsg{contextKey: m.contextKey, requestID: m.requestID, metadataID: m.tagsRequestID, scopeErr: errors.New("old identity failure")}
-			m.tagsLoaded = false
-			m.openFilters()
-			latest := issueTagsMsg{contextKey: m.contextKey, requestID: m.requestID, metadataID: m.tagsRequestID, scope: scope, withTags: true, tags: []ytcli.Tag{{ID: "1", Name: "backend"}}}
-			if old.metadataID == latest.metadataID {
-				t.Fatal("overlapping fetches share result identity")
-			}
-			if olderFirst {
-				m, _ = m.Update(old)
-			}
-			var cmd tea.Cmd
-			m, cmd = m.Update(latest)
-			if cmd == nil || m.err != nil || !m.tagScopeReady || m.tagScopeLoading || m.tagsLoading || m.serverQuery != "tag: {backend}" {
-				t.Fatalf("latest scope did not restore query: err %v query %q", m.err, m.serverQuery)
-			}
-			if !olderFirst {
-				m, _ = m.Update(old)
-			}
-			if m.err != nil || !m.tagScopeReady || m.tagsErr != nil {
-				t.Fatal("late old failure replaced current account")
-			}
-		})
-	}
-}
-
-func TestTagIdentityRetryClearsPreviousError(t *testing.T) {
+func TestTagCatalogueErrorCanBeRetriedWithinSession(t *testing.T) {
 	m := tagFilterModel(t)
-	m.cfg.SetFilteredTags(m.tagScope, "DEMO", []string{"backend"})
-	scope := m.tagScope
-	m.tagScopeReady = false
-	m.tagScopeErr = errors.New("old failure")
+	m.selectedTags = []string{"backend"}
 	m.restoreOrLoadIssues()
 	m.tagsLoaded = false
 	m.openFilters()
-	msg := issueTagsMsg{contextKey: m.contextKey, requestID: m.requestID, metadataID: m.tagsRequestID, scope: scope, withTags: true, err: errors.New("catalogue unavailable")}
-	var cmd tea.Cmd
-	m, cmd = m.Update(msg)
-	if cmd == nil || m.err != nil || m.tagsErr == nil || m.serverQuery != "tag: {backend}" {
-		t.Fatal("identity retry must recover constrained browsing despite separate catalogue error")
+	failed := issueTagsMsg{contextKey: m.contextKey, requestID: m.requestID, metadataID: m.tagsRequestID, err: errors.New("unavailable")}
+	m, _ = m.Update(failed)
+	m.openFilters()
+	ok := issueTagsMsg{contextKey: m.contextKey, requestID: m.requestID, metadataID: m.tagsRequestID, tags: []ytcli.Tag{{ID: "1", Name: "backend"}}}
+	m, _ = m.Update(ok)
+	m, _ = m.Update(failed)
+	if !m.tagsLoaded || m.tagsErr != nil || m.serverQuery != "tag: {backend}" {
+		t.Fatal("stale error replaced current catalogue or changed active query")
 	}
 }
 
 func TestTagCaseVariantsShareOneSelectedOption(t *testing.T) {
 	m := tagFilterModel(t)
 	m.tags = append(m.tags, ytcli.Tag{ID: "4", Name: "Backend"})
-	m.cfg.SetFilteredTags(m.tagScope, "DEMO", []string{"BACKEND"})
+	m.selectedTags = []string{"BACKEND"}
 	m.restoreOrLoadIssues()
 	m.openFilters()
 	if got := m.filterPanel.sections[3].Options; !slices.Equal(got, []string{"BACKEND", "needs review"}) {
