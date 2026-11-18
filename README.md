@@ -488,6 +488,10 @@ Native tags appear as a wrapped list in the scrollable Description pane, so long
 * `Ctrl+s` (or `Enter` on text inputs): Submit the form and save/create/clone the issue.
 * `Esc`: Cancel and discard changes.
 
+## Backlog
+
+- **Issue description templates.** When creating an issue, prefill the description with the team’s editable Markdown template. First confirm how the project supplies it in YouTrack (for example, through a shared template URL or a workflow). Preserve text already entered in the draft.
+
 ## Development Workflow
 
 `main` is this fork's stable development and installation branch. Start focused `feat/*`, `fix/*`, or `docs/*` branches from an up-to-date `main`, then open pull requests back to `main`. Before merging, run the checks below and a build; exercise the affected TUI flow when behavior changes. Delete working branches after their changes are fully merged into `main`.
