@@ -74,6 +74,8 @@ func TestRetryFailedLinkOnNewIssue(t *testing.T) {
 		switch r.URL.Path {
 		case "/api/admin/projects":
 			fmt.Fprint(w, `[{"id":"0-1","shortName":"APP"}]`)
+		case "/api/admin/projects/0-1/customFields":
+			fmt.Fprint(w, `[{"$type":"UserProjectCustomField","canBeEmpty":true,"field":{"name":"Assignee","fieldType":{"isMultiValue":false}}}]`)
 		case "/api/issues":
 			creates++
 			fmt.Fprint(w, `{"idReadable":"APP-3"}`)
