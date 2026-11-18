@@ -67,6 +67,7 @@ When editing or extending this codebase, you **must** adhere to the following co
 
 ## 🛠 Build & Run Reference
 
-* To build: `go build -o yt-tui`
+* To build the current checkout: `make build`
+* To install in `~/.local/bin`: `make install`
 * To run: `./yt-tui`
 * Dependencies are listed in [go.mod](go.mod).

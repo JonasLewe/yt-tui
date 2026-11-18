@@ -44,8 +44,7 @@ Styled out-of-the-box with a vibrant **Catppuccin Mocha** color palette, `yt-tui
 
 ## 🚀 Prerequisites
 
-If you choose to build the project from source, you will need:
-1. **Go Compiler**: Go 1.24.2 or newer, matching [go.mod](go.mod).
+Building from source requires Go 1.24.2 or newer. The commands below use Make. [Go version](go.mod)
 
 ---
 
@@ -57,43 +56,33 @@ This fork has not published its own binary release yet. Build from `main` below 
 
 ### 🛠️ Build This Fork from Source
 
-Build a binary whose `--version` output identifies the source commit:
+From the repository directory, build the current checkout and check its version:
 
 ```bash
-git clone https://github.com/JonasLewe/yt-tui.git &&
-cd yt-tui &&
-git switch main &&
-go build -trimpath \
-  -ldflags "-s -w -X main.version=dev-$(git rev-parse --short=8 HEAD)" \
-  -o yt-tui . &&
+make build
 ./yt-tui --version
 ```
 
-Run `./yt-tui` to launch it. On Linux/macOS, you can install it into a user-writable directory on your `PATH`, for example:
+Run `./yt-tui` to launch the local build. Its version includes the eight-character Git commit ID when available. For a first checkout, run `git clone https://github.com/JonasLewe/yt-tui.git` and `cd yt-tui` before building.
+
+On Linux/macOS, build and install the current checkout into `~/.local/bin` with:
 
 ```bash
-mkdir -p "$HOME/.local/bin" &&
-cp yt-tui "$HOME/.local/bin/yt-tui"
+make install
 ```
 
 Ensure `$HOME/.local/bin` is on your `PATH` before launching `yt-tui` from another directory or from Neovim.
 
 ### Updating an Existing Installation
 
-Pulling source changes does not replace an installed binary. Fully exit running TUI sessions with `Q` before updating, so an older process cannot save its previous configuration format. In your existing checkout, use `main` and build into the executable path used by your shell.
+Fully exit running TUI sessions with `Q`. From the checkout you want to run, rebuild and update the installed binary:
 
 ```bash
-git switch main &&
-git pull --ff-only &&
-yt_tui_executable="$(command -v yt-tui)" &&
-test -n "$yt_tui_executable" &&
-go build -trimpath \
-  -ldflags "-s -w -X main.version=dev-$(git rev-parse --short=8 HEAD)" \
-  -o "$yt_tui_executable" . &&
-"$yt_tui_executable" --version
+make install
+yt-tui --version
 ```
 
-The target must be writable by your user. In Neovim, check its actual executable path with `:lua print(vim.fn.exepath('yt-tui'))`; if this differs from your shell, use that path for `-o` instead. Then run `:YtTuiRestart` so the integration launches the new binary. `:YtTui`, toggling the window, or hiding it with `q` resumes the existing process.
+Use `command -v yt-tui` to check which copy your shell runs. For an installation in another directory, use `make install BINDIR=/path/to/bin`. In Neovim, check the executable path with `:lua print(vim.fn.exepath('yt-tui'))` and run `:YtTuiRestart` to launch the updated binary.
 
 ---
 
@@ -512,7 +501,7 @@ Run the checks and an additional build locally with:
 test -z "$(gofmt -l .)" &&
 go vet ./... &&
 go test -race ./... &&
-go build -o yt-tui .
+make build
 ```
 
 ### Upstream Updates
