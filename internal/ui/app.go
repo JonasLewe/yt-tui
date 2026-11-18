@@ -291,20 +291,6 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		if msg.String() == "f" && m.state == stateDashboard {
-			if cfg, err := config.LoadConfig(); err == nil {
-				*m.cfg = *cfg
-			}
-			favView := m.cfg.GetFavoriteView(m.client.GetConfiguredBaseURL())
-			if favView == "" {
-				m.status = "No favourite view set yet."
-				m.isStatusErr = true
-				return m, nil
-			}
-			m.history = append(m.history, navEntry{state: m.state, data: m.stateData})
-			cmd := m.switchState(stateIssues, favView, false)
-			return m, cmd
-		}
 		if m.canUseQuitKeys() {
 			switch msg.String() {
 			case "q":
@@ -339,8 +325,8 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.boards.width = childWidth
 		m.boards.height = childHeight
 
-		m.issues.width = childWidth
-		m.issues.height = childHeight
+		m.issues.width = max(1, m.width-4)
+		m.issues.height = max(1, childHeight)
 
 		m.detail.width = childWidth
 		m.detail.height = childHeight
@@ -589,8 +575,8 @@ func (m AppModel) View() string {
 		lipgloss.NewStyle().Foreground(lipgloss.Color(ColorCyan)).Render(" 🧭 "+breadcrumbStr),
 		statusPart,
 	)
-	if m.state == stateArticles || m.state == stateArticleDetail || m.state == stateArticleForm {
-		// Article viewports reserve one line for the breadcrumb, even when
+	if m.state == stateIssues || m.state == stateArticles || m.state == stateArticleDetail || m.state == stateArticleForm {
+		// Sized viewports reserve one line for the breadcrumb, even when
 		// opened through a project's issues list in a narrow terminal.
 		statusBarText = ansi.Truncate(statusBarText, max(1, m.width), "…")
 	}
@@ -644,6 +630,9 @@ func (m AppModel) View() string {
 		baseView = overlayLines(baseView, popup, x, y)
 	}
 
+	if m.state == stateIssues {
+		return boundIssueView(baseView, m.width, m.height)
+	}
 	return baseView
 }
 
@@ -815,20 +804,22 @@ func (m AppModel) isAnyInputFocused() bool {
 	case stateWelcome:
 		return m.welcome.urlInput.Focused() || m.welcome.tokenInput.Focused()
 	case stateIssues:
-		return m.issues.searchMode
+		return m.issues.searchMode || (m.issues.filterMode && m.issues.filterPanel.searchMode)
 	case stateArticles:
 		return m.articles.searchMode
 	case stateArticleForm:
 		return m.articleForm.summaryInput.Focused() || m.articleForm.contentInput.Focused()
 	case stateDetail:
-		return m.detail.textInput.Focused() ||
+		return m.detail.zoxide.input.Focused() ||
+			m.detail.textInput.Focused() ||
 			m.detail.commentInput.Focused() ||
 			m.detail.trackTimeDateInput.Focused() ||
 			m.detail.trackTimeDurationInput.Focused() ||
 			m.detail.trackTimeCommentInput.Focused() ||
 			m.detail.estimationInput.Focused()
 	case stateForm:
-		return m.form.summaryInput.Focused() ||
+		return m.form.zoxide.input.Focused() ||
+			m.form.summaryInput.Focused() ||
 			m.form.descTextArea.Focused() ||
 			m.form.assigneeInput.Focused()
 	default:
@@ -875,7 +866,6 @@ func (m AppModel) renderHelpPopup() string {
 			{"n", "Create new issue"},
 			{"p", "Open Projects view"},
 			{"b", "Open Boards view"},
-			{"f", "Open Favorite view"},
 		}),
 		"",
 		formatSection("Projects", [][2]string{
@@ -903,8 +893,7 @@ func (m AppModel) renderHelpPopup() string {
 			{"Enter", "View issue details"},
 			{"K", "View project's knowledge base"},
 			{"/", "Search/filter phrase"},
-			{"F", "Filter state/priority"},
-			{"f", "Toggle view favorite"},
+			{"F", "Filter state/priority/type/tags"},
 			{"s", "Sort issues list"},
 			{"n", "Create new issue"},
 			{"r", "Refresh issues list"},

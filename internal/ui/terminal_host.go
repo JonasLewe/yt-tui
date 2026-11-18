@@ -65,7 +65,7 @@ func (m AppModel) canUseQuitKeys() bool {
 	case stateProjects, stateBoards:
 		return true
 	case stateIssues:
-		return !m.issues.searchMode && !m.issues.actionMode
+		return !m.issues.searchMode && !m.issues.actionMode && !m.issues.filterMode
 	case stateArticles:
 		return !m.articles.searchMode
 	case stateArticleDetail:

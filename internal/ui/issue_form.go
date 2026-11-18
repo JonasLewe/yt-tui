@@ -247,7 +247,7 @@ func (m formModel) getTypes() []string {
 		custom := m.cfg.GetCustomTypes(projectCode)
 		opts = append(opts, custom...)
 	} else {
-		opts = append(opts, "Bug", "Feature", "Task", "Epic", "Improvement", "Support")
+		opts = append(opts, config.DefaultTypes...)
 	}
 	opts = append(opts, m.customTypes...)
 	return opts
@@ -367,10 +367,7 @@ func (m formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 		m.filepicker = zres.Picker
 		if zres.Handled {
 			if zres.Jumped && m.cfg != nil {
-				m.cfg.FilepickerSortBy = m.filepicker.SortBy.String()
-				m.cfg.FilepickerSortOrder = m.filepicker.SortOrder.String()
-				m.cfg.FilepickerLastDir = m.filepicker.CurrentDirectory
-				_ = config.SaveConfig(m.cfg)
+				_ = saveFilepickerPreferences(m.cfg, m.filepicker)
 			}
 			return m, zres.Cmd
 		}
@@ -380,10 +377,7 @@ func (m formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 				m.filepickerActive = false
 				m.zoxide = m.zoxide.close()
 				if m.cfg != nil {
-					m.cfg.FilepickerSortBy = m.filepicker.SortBy.String()
-					m.cfg.FilepickerSortOrder = m.filepicker.SortOrder.String()
-					m.cfg.FilepickerLastDir = m.filepicker.CurrentDirectory
-					_ = config.SaveConfig(m.cfg)
+					_ = saveFilepickerPreferences(m.cfg, m.filepicker)
 				}
 				return m, nil
 			}
@@ -393,10 +387,7 @@ func (m formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 				m.filepickerActive = false
 				m.zoxide = m.zoxide.close()
 				if m.cfg != nil {
-					m.cfg.FilepickerSortBy = m.filepicker.SortBy.String()
-					m.cfg.FilepickerSortOrder = m.filepicker.SortOrder.String()
-					m.cfg.FilepickerLastDir = m.filepicker.CurrentDirectory
-					_ = config.SaveConfig(m.cfg)
+					_ = saveFilepickerPreferences(m.cfg, m.filepicker)
 				}
 				filename := fmt.Sprintf("file-%s-%s", time.Now().Format("20060102-150405"), filepath.Base(path))
 				m.pastedImages = append(m.pastedImages, SelectedFile{

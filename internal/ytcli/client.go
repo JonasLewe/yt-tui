@@ -74,7 +74,7 @@ func NewClient() *Client {
 			if cfg != nil && cfg.URL == "" && cfg.Token == "" {
 				cfg.URL = c.baseURL
 				cfg.Token = c.token
-				_ = config.SaveConfig(cfg)
+				_ = config.SaveConfig(cfg, "url", "token")
 			}
 		}
 	}
@@ -519,7 +519,7 @@ func (c *Client) ListSprintIssues(agileID string, sprintID string) ([]Issue, err
 		baseURL += "/"
 	}
 
-	fields := "issues(id,idReadable,summary,description,project(id,name,shortName),customFields(id,name,value(id,name,fullName,login,presentation,text),$type),comments(id,text,created,author(login,fullName,email)),reporter(login,fullName,email),created,updated,updater(login,fullName,email))"
+	fields := "issues(id,idReadable,summary,description,project(id,name,shortName),customFields(id,name,value(id,name,fullName,login,presentation,text),$type),comments(id,text,created,author(login,fullName,email)),reporter(login,fullName,email),tags(" + tagFields + "),created,updated,updater(login,fullName,email))"
 	apiURL := baseURL + fmt.Sprintf("api/agiles/%s/sprints/%s?fields=%s", agileID, sprintID, fields)
 
 	req, err := c.newRequest("GET", apiURL, nil)
@@ -556,17 +556,19 @@ func (c *Client) ListIssues(projectID string, query string, limit int, skip int)
 		baseURL += "/"
 	}
 
-	var parts []string
+	fullQuery := query
 	if projectID != "" {
-		parts = append(parts, "project: "+projectID)
+		fullQuery = "project: " + projectID
+		if query != "" {
+			// YouTrack requires an explicit operator beside a parenthesized
+			// expression. Group the complete query so every OR alternative
+			// remains restricted to the selected project.
+			fullQuery = "(" + fullQuery + ") and (" + query + ")"
+		}
 	}
-	if query != "" {
-		parts = append(parts, query)
-	}
-	fullQuery := strings.Join(parts, " ")
 
 	params := url.Values{}
-	params.Set("fields", "id,idReadable,summary,description,project(id,name,shortName),customFields(id,name,value(id,name,fullName,login,presentation,text),$type),comments(id,text,created,author(login,fullName,email)),reporter(login,fullName,email),created,updated,updater(login,fullName,email)")
+	params.Set("fields", "id,idReadable,summary,description,project(id,name,shortName),customFields(id,name,value(id,name,fullName,login,presentation,text),$type),comments(id,text,created,author(login,fullName,email)),reporter(login,fullName,email),tags("+tagFields+"),created,updated,updater(login,fullName,email)")
 	if fullQuery != "" {
 		params.Set("query", fullQuery)
 	}
@@ -620,7 +622,7 @@ func (c *Client) GetIssue(id string) (*Issue, error) {
 	}
 
 	params := url.Values{}
-	params.Set("fields", "id,idReadable,summary,description,project(id,name,shortName),customFields(id,name,value(id,name,fullName,login,presentation,text),$type),comments(id,text,created,author(login,fullName,email)),reporter(login,fullName,email),links(id,direction,linkType(name,localizedName,sourceToTarget,localizedSourceToTarget,targetToSource,localizedTargetToSource),issues(id,idReadable,summary,customFields(name,value(name)))),attachments(id,name,url,size),created,updated,updater(login,fullName,email)")
+	params.Set("fields", "id,idReadable,summary,description,project(id,name,shortName),customFields(id,name,value(id,name,fullName,login,presentation,text),$type),comments(id,text,created,author(login,fullName,email)),reporter(login,fullName,email),links(id,direction,linkType(name,localizedName,sourceToTarget,localizedSourceToTarget,targetToSource,localizedTargetToSource),issues(id,idReadable,summary,customFields(name,value(name)))),attachments(id,name,url,size),tags("+tagFields+"),created,updated,updater(login,fullName,email)")
 	apiURL := fmt.Sprintf("%sapi/issues/%s?%s", baseURL, id, params.Encode())
 
 	req, err := c.newRequest("GET", apiURL, nil)
@@ -1820,7 +1822,7 @@ func (c *Client) SaveCredentials(baseURL, token string) error {
 	}
 	cfg.URL = baseURL
 	cfg.Token = token
-	return config.SaveConfig(cfg)
+	return config.SaveConfig(cfg, "url", "token")
 }
 
 // parseEnvFile reads an env file and returns all key-value pairs.

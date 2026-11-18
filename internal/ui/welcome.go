@@ -235,7 +235,7 @@ func (m welcomeModel) Update(msg tea.Msg) (welcomeModel, tea.Cmd) {
 									URL:   baseURL,
 									Token: token,
 								})
-								_ = config.SaveConfig(cfg)
+								_ = config.SaveConfig(cfg, "servers")
 							}
 						}
 					}

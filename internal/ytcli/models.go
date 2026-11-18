@@ -9,6 +9,7 @@ import (
 
 // User represents a YouTrack user.
 type User struct {
+	ID       string `json:"id,omitempty"`
 	Login    string `json:"login"`
 	FullName string `json:"fullName,omitempty"`
 	Email    string `json:"email,omitempty"`
@@ -126,6 +127,14 @@ type Attachment struct {
 	Size int64  `json:"size,omitempty"`
 }
 
+// Tag is a native YouTrack tag visible to the authenticated user. Tags with the
+// same name can have different owners; issue search selects by name, not ID.
+type Tag struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Owner *User  `json:"owner,omitempty"`
+}
+
 // Issue represents a YouTrack issue.
 type Issue struct {
 	ID           string        `json:"id"`
@@ -138,6 +147,7 @@ type Issue struct {
 	Links        []IssueLink   `json:"links,omitempty"`
 	Reporter     *User         `json:"reporter,omitempty"`
 	Attachments  []Attachment  `json:"attachments,omitempty"`
+	Tags         []Tag         `json:"tags,omitempty"`
 	Created      int64         `json:"created,omitempty"`
 	Updated      int64         `json:"updated,omitempty"`
 	Updater      *User         `json:"updater,omitempty"`
@@ -271,17 +281,9 @@ func (i Issue) Priority() string {
 	return "Normal"
 }
 
-// Type returns the type/category of the issue (Bug, Feature, etc.).
+// Type returns the type/category of the issue, or an empty string if unavailable.
 func (i Issue) Type() string {
-	val := i.ExtractStringField("Type")
-	if val != "" {
-		return val
-	}
-	val = i.ExtractStringField("Issue Type")
-	if val != "" {
-		return val
-	}
-	return "Task"
+	return i.TypeValue("")
 }
 
 // Assignee returns the assignee's display name.

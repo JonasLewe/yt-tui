@@ -3,8 +3,6 @@ package config
 import (
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 )
 
 // CustomStatesMap represents custom states configured per project, or a default fallback.
@@ -153,6 +151,9 @@ func (a *ActionsMap) UnmarshalJSON(data []byte) error {
 
 // Config represents the application configuration.
 type Config struct {
+	// Tracking is immutable: a shallow Config copy can be saved independently.
+	tracking            *configTracking
+	explicitPaths       [][]string
 	URL                 string                `json:"url"`
 	Token               string                `json:"token"`
 	Servers             []ServerConfig        `json:"servers,omitempty"`
@@ -165,6 +166,9 @@ type Config struct {
 	WorkTypes           []string              `json:"work_types"`
 	FilteredStates      FilteredStatesMap     `json:"filtered_states"`
 	FilteredPriorities  FilteredPrioritiesMap `json:"filtered_priorities"`
+	FilteredTypes       map[string][]string   `json:"filtered_types,omitempty"`
+	FilteredTags        FilteredTagsMap       `json:"filtered_tags,omitempty"`
+	TypeFieldName       map[string]string     `json:"type_field_name,omitempty"`
 	SortColumn          string                `json:"sort_column"`
 	SortDirection       string                `json:"sort_direction"`
 	FavoriteView        string                `json:"favorite_view,omitempty"`
@@ -195,11 +199,11 @@ func (cfg *Config) GetCustomStates(projectCode string) []string {
 		return DefaultStates
 	}
 	if projectCode != "" {
-		if states, ok := cfg.CustomStates[projectCode]; ok && len(states) > 0 {
+		if states, ok := cfg.CustomStates[projectCode]; ok {
 			return states
 		}
 	}
-	if states, ok := cfg.CustomStates["default"]; ok && len(states) > 0 {
+	if states, ok := cfg.CustomStates["default"]; ok {
 		return states
 	}
 	return DefaultStates
@@ -213,11 +217,11 @@ func (cfg *Config) GetCustomPriorities(projectCode string) []string {
 		return DefaultPriorities
 	}
 	if projectCode != "" {
-		if priorities, ok := cfg.CustomPriorities[projectCode]; ok && len(priorities) > 0 {
+		if priorities, ok := cfg.CustomPriorities[projectCode]; ok {
 			return priorities
 		}
 	}
-	if priorities, ok := cfg.CustomPriorities["default"]; ok && len(priorities) > 0 {
+	if priorities, ok := cfg.CustomPriorities["default"]; ok {
 		return priorities
 	}
 	return DefaultPriorities
@@ -229,7 +233,7 @@ func (cfg *Config) GetBoardsFieldName(projectCode string) string {
 		return ""
 	}
 	if projectCode != "" {
-		if name, ok := cfg.BoardsFieldName[projectCode]; ok && name != "" {
+		if name, ok := cfg.BoardsFieldName[projectCode]; ok {
 			return name
 		}
 	}
@@ -237,6 +241,20 @@ func (cfg *Config) GetBoardsFieldName(projectCode string) string {
 		return name
 	}
 	return ""
+}
+
+// GetTypeFieldName returns the configured issue type field name for a project.
+// An empty result lets the caller detect the standard Type or Issue Type field.
+func (cfg *Config) GetTypeFieldName(projectCodes ...string) string {
+	if cfg == nil {
+		return ""
+	}
+	for _, projectCode := range projectCodes {
+		if name, ok := cfg.TypeFieldName[projectCode]; projectCode != "" && ok {
+			return name
+		}
+	}
+	return cfg.TypeFieldName["default"]
 }
 
 // GetCustomTypes returns the list of custom types for the given project.
@@ -247,11 +265,11 @@ func (cfg *Config) GetCustomTypes(projectCode string) []string {
 		return DefaultTypes
 	}
 	if projectCode != "" {
-		if types, ok := cfg.CustomTypes[projectCode]; ok && len(types) > 0 {
+		if types, ok := cfg.CustomTypes[projectCode]; ok {
 			return types
 		}
 	}
-	if types, ok := cfg.CustomTypes["default"]; ok && len(types) > 0 {
+	if types, ok := cfg.CustomTypes["default"]; ok {
 		return types
 	}
 	return DefaultTypes
@@ -260,7 +278,7 @@ func (cfg *Config) GetCustomTypes(projectCode string) []string {
 // GetFilteredStates returns the list of filtered states for the given project.
 func (cfg *Config) GetFilteredStates(projectCode string) []string {
 	if cfg == nil || len(cfg.FilteredStates) == 0 {
-		return DefaultStates
+		return cfg.GetCustomStates(projectCode)
 	}
 	key := projectCode
 	if key == "" {
@@ -278,7 +296,7 @@ func (cfg *Config) GetFilteredStates(projectCode string) []string {
 // GetFilteredPriorities returns the list of filtered priorities for the given project.
 func (cfg *Config) GetFilteredPriorities(projectCode string) []string {
 	if cfg == nil || len(cfg.FilteredPriorities) == 0 {
-		return DefaultPriorities
+		return cfg.GetCustomPriorities(projectCode)
 	}
 	key := projectCode
 	if key == "" {
@@ -293,6 +311,20 @@ func (cfg *Config) GetFilteredPriorities(projectCode string) []string {
 	return cfg.GetCustomPriorities(projectCode)
 }
 
+// GetFilteredTypes returns selected issue types, or no restriction if empty.
+// A project entry overrides the default even when its list is empty.
+func (cfg *Config) GetFilteredTypes(projectCodes ...string) []string {
+	if cfg == nil {
+		return nil
+	}
+	for _, projectCode := range projectCodes {
+		if types, ok := cfg.FilteredTypes[projectCode]; projectCode != "" && ok {
+			return types
+		}
+	}
+	return cfg.FilteredTypes["default"]
+}
+
 // GetActions returns the list of custom actions for the given project.
 // If projectCode is empty or not found, it falls back to the "default" key,
 // and finally to nil.
@@ -301,14 +333,30 @@ func (cfg *Config) GetActions(projectCode string) []ActionConfig {
 		return nil
 	}
 	if projectCode != "" {
-		if actions, ok := cfg.Actions[projectCode]; ok && len(actions) > 0 {
+		if actions, ok := cfg.Actions[projectCode]; ok {
 			return actions
 		}
 	}
-	if actions, ok := cfg.Actions["default"]; ok && len(actions) > 0 {
+	if actions, ok := cfg.Actions["default"]; ok {
 		return actions
 	}
 	return nil
+}
+
+// SetFilteredTypes saves the type selection for a project, using an empty list
+// to explicitly select all types even when a default filter is configured.
+func (cfg *Config) SetFilteredTypes(projectCode string, types []string) {
+	if cfg == nil {
+		return
+	}
+	if cfg.FilteredTypes == nil {
+		cfg.FilteredTypes = make(map[string][]string)
+	}
+	if projectCode == "" {
+		projectCode = "default"
+	}
+	cfg.FilteredTypes[projectCode] = append([]string{}, types...)
+	cfg.markOverride("filtered_types", projectCode)
 }
 
 // SetFilteredStates sets the filtered states for the given project.
@@ -323,7 +371,8 @@ func (cfg *Config) SetFilteredStates(projectCode string, states []string) {
 	if key == "" {
 		key = "default"
 	}
-	cfg.FilteredStates[key] = states
+	cfg.FilteredStates[key] = append([]string{}, states...)
+	cfg.markOverride("filtered_states", key)
 }
 
 // SetFilteredPriorities sets the filtered priorities for the given project.
@@ -338,7 +387,8 @@ func (cfg *Config) SetFilteredPriorities(projectCode string, priorities []string
 	if key == "" {
 		key = "default"
 	}
-	cfg.FilteredPriorities[key] = priorities
+	cfg.FilteredPriorities[key] = append([]string{}, priorities...)
+	cfg.markOverride("filtered_priorities", key)
 }
 
 // GetFavoriteView returns the favorite view for the given server URL.
@@ -365,6 +415,8 @@ func (cfg *Config) SetFavoriteView(url string, view string) {
 	if cfg == nil {
 		return
 	}
+	cfg.markOverride("favorite_views", url)
+	cfg.markOverride("favorite_view")
 	if cfg.FavoriteViews == nil {
 		cfg.FavoriteViews = make(map[string]string)
 	}
@@ -406,206 +458,9 @@ const (
 )
 
 var (
-	DefaultFields     = []string{"ID", "Summary", "State", "Priority", "Assignee"}
-	DefaultTypes      = []string{"Bug", "Feature", "Task", "Epic", "Improvement", "Support"}
+	DefaultFields     = []string{"ID", "Type", "Summary", "State", "Priority", "Assignee"}
+	DefaultTypes      = []string{"Bug", "Feature", "Task", "Story", "Epic", "Improvement", "Support"}
 	DefaultPriorities = []string{"Minor", "Normal", "Major", "Critical", "Show-stopper"}
 	DefaultStates     = []string{"Open", "In Progress", "Verified", "Done", "Duplicate", "Won't fix", "Incomplete"}
 	DefaultWorkTypes  = []string{"Development", "Documentation", "Implementation", "Investigation", "Testing"}
 )
-
-// LoadConfig loads config from ~/.config/yt-tui/config.json.
-// If the file or parent directory doesn't exist, it creates them with default values.
-func LoadConfig() (*Config, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return &Config{
-			PageSize:           DefaultPageSize,
-			MaxIssues:          DefaultMaxIssues,
-			Fields:             DefaultFields,
-			CustomTypes:        map[string][]string{"default": DefaultTypes},
-			CustomPriorities:   map[string][]string{"default": DefaultPriorities},
-			CustomStates:       map[string][]string{"default": DefaultStates},
-			WorkTypes:          DefaultWorkTypes,
-			FilteredStates:     FilteredStatesMap{"default": append([]string{}, DefaultStates...)},
-			FilteredPriorities: FilteredPrioritiesMap{"default": append([]string{}, DefaultPriorities...)},
-			ActivityFilters:    []string{"Comments"},
-			RenderMarkdown:     true,
-			BrowserCommand:     "xdg-open",
-			Theme:              "catppuccin",
-		}, err
-	}
-
-	configDir := filepath.Join(home, ".config", "yt-tui")
-	configPath := filepath.Join(configDir, "config.json")
-
-	// Ensure the directory exists
-	if err := os.MkdirAll(configDir, 0755); err != nil {
-		return &Config{
-			PageSize:           DefaultPageSize,
-			MaxIssues:          DefaultMaxIssues,
-			Fields:             DefaultFields,
-			CustomTypes:        map[string][]string{"default": DefaultTypes},
-			CustomPriorities:   map[string][]string{"default": DefaultPriorities},
-			CustomStates:       map[string][]string{"default": DefaultStates},
-			FilteredStates:     FilteredStatesMap{"default": append([]string{}, DefaultStates...)},
-			FilteredPriorities: FilteredPrioritiesMap{"default": append([]string{}, DefaultPriorities...)},
-			ActivityFilters:    []string{"Comments"},
-			RenderMarkdown:     true,
-			Theme:              "catppuccin",
-		}, err
-	}
-
-	// Default config
-	cfg := &Config{
-		PageSize:           DefaultPageSize,
-		MaxIssues:          DefaultMaxIssues,
-		Fields:             DefaultFields,
-		CustomTypes:        map[string][]string{"default": DefaultTypes},
-		CustomPriorities:   map[string][]string{"default": DefaultPriorities},
-		CustomStates:       map[string][]string{"default": DefaultStates},
-		WorkTypes:          DefaultWorkTypes,
-		FilteredStates:     FilteredStatesMap{"default": append([]string{}, DefaultStates...)},
-		FilteredPriorities: FilteredPrioritiesMap{"default": append([]string{}, DefaultPriorities...)},
-		ActivityFilters:    []string{"Comments"},
-		RenderMarkdown:     true,
-		BrowserCommand:     "xdg-open",
-		Theme:              "catppuccin",
-	}
-
-	// Check if file exists
-	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		// File does not exist, save the default config
-		data, err := json.MarshalIndent(cfg, "", "  ")
-		if err != nil {
-			return cfg, err
-		}
-		if err := os.WriteFile(configPath, data, 0644); err != nil {
-			return cfg, err
-		}
-		return cfg, nil
-	}
-
-	// File exists, read and parse it
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		return cfg, err
-	}
-
-	fileCfg := Config{
-		RenderMarkdown: true,
-	}
-	if err := json.Unmarshal(data, &fileCfg); err != nil {
-		// If JSON is malformed, return default config
-		return cfg, err
-	}
-
-	// If page_size, max_issues, fields, custom_types, custom_priorities, or custom_states is not set or invalid, set to default and write back
-	needsWrite := false
-	if fileCfg.PageSize <= 0 {
-		fileCfg.PageSize = DefaultPageSize
-		needsWrite = true
-	}
-	if fileCfg.BrowserCommand == "" {
-		fileCfg.BrowserCommand = "xdg-open"
-		needsWrite = true
-	}
-	if fileCfg.MaxIssues <= 0 {
-		fileCfg.MaxIssues = DefaultMaxIssues
-		needsWrite = true
-	}
-	if len(fileCfg.Fields) == 0 {
-		fileCfg.Fields = DefaultFields
-		needsWrite = true
-	}
-	if len(fileCfg.CustomTypes) == 0 {
-		fileCfg.CustomTypes = map[string][]string{"default": DefaultTypes}
-		needsWrite = true
-	}
-	if len(fileCfg.CustomPriorities) == 0 {
-		fileCfg.CustomPriorities = map[string][]string{"default": DefaultPriorities}
-		needsWrite = true
-	}
-	if len(fileCfg.CustomStates) == 0 {
-		fileCfg.CustomStates = map[string][]string{"default": DefaultStates}
-		needsWrite = true
-	}
-	if len(fileCfg.WorkTypes) == 0 {
-		fileCfg.WorkTypes = DefaultWorkTypes
-		needsWrite = true
-	}
-	if fileCfg.FilteredStates == nil {
-		// Gather all unique states from the map
-		uniqueStates := make(map[string]bool)
-		for _, states := range fileCfg.CustomStates {
-			for _, s := range states {
-				uniqueStates[s] = true
-			}
-		}
-		if len(uniqueStates) == 0 {
-			for _, s := range DefaultStates {
-				uniqueStates[s] = true
-			}
-		}
-		statesList := make([]string, 0, len(uniqueStates))
-		for s := range uniqueStates {
-			statesList = append(statesList, s)
-		}
-		fileCfg.FilteredStates = FilteredStatesMap{"default": statesList}
-		needsWrite = true
-	}
-	if fileCfg.FilteredPriorities == nil {
-		// Gather all unique priorities from the map
-		uniquePriorities := make(map[string]bool)
-		for _, priorities := range fileCfg.CustomPriorities {
-			for _, p := range priorities {
-				uniquePriorities[p] = true
-			}
-		}
-		if len(uniquePriorities) == 0 {
-			for _, p := range DefaultPriorities {
-				uniquePriorities[p] = true
-			}
-		}
-		prioritiesList := make([]string, 0, len(uniquePriorities))
-		for p := range uniquePriorities {
-			prioritiesList = append(prioritiesList, p)
-		}
-		fileCfg.FilteredPriorities = FilteredPrioritiesMap{"default": prioritiesList}
-		needsWrite = true
-	}
-	if fileCfg.ActivityFilters == nil {
-		fileCfg.ActivityFilters = []string{"Comments"}
-		needsWrite = true
-	}
-	if fileCfg.Theme == "" {
-		fileCfg.Theme = "catppuccin"
-		needsWrite = true
-	}
-
-	if needsWrite {
-		// Save the corrected config back
-		if data, err := json.MarshalIndent(fileCfg, "", "  "); err == nil {
-			_ = os.WriteFile(configPath, data, 0644)
-		}
-	}
-
-	return &fileCfg, nil
-}
-
-// SaveConfig saves the configuration to ~/.config/yt-tui/config.json.
-func SaveConfig(cfg *Config) error {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return err
-	}
-
-	configDir := filepath.Join(home, ".config", "yt-tui")
-	configPath := filepath.Join(configDir, "config.json")
-
-	data, err := json.MarshalIndent(cfg, "", "  ")
-	if err != nil {
-		return err
-	}
-
-	return os.WriteFile(configPath, data, 0644)
-}
