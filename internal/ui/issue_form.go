@@ -25,6 +25,7 @@ const (
 	fieldSummary
 	fieldDescription
 	fieldType
+	fieldState
 	fieldPriority
 	fieldAssignee
 	numFields // total count
@@ -56,8 +57,9 @@ type formModel struct {
 	projectIndex       int
 	initialProjectCode string
 
-	typeIndex   int
-	customTypes []string
+	initialState initialStateSelector
+	typeIndex    int
+	customTypes  []string
 
 	priorityIndex    int
 	customPriorities []string
@@ -310,6 +312,7 @@ func (m *formModel) setupForm(data string) tea.Cmd {
 	m.projectIndex = 0
 	m.typeIndex = 0
 	m.priorityIndex = 0
+	m.initialState = initialStateSelector{request: m.initialState.request + 1}
 	m.customTypes = nil
 	m.customPriorities = nil
 	m.allUsers = nil
@@ -353,7 +356,7 @@ func (m formModel) Init() tea.Cmd {
 	return m.spinner.Tick
 }
 
-func (m formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
+func (m formModel) updateForm(msg tea.Msg) (formModel, tea.Cmd) {
 	var cmd tea.Cmd
 
 	// Keep input sizes applied to the stored models so cursor navigation and
@@ -523,6 +526,11 @@ func (m formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 			m.errPopupShow = false
 			m.err = nil
 			return m, nil
+		}
+		if m.focusIndex == fieldState && !m.loading {
+			if handled, stateCmd := m.updateStateKey(msg.String()); handled {
+				return m, stateCmd
+			}
 		}
 		switch msg.String() {
 		case "ctrl+v", "ctrl+shift+v", "ctrl+V":
@@ -1086,6 +1094,13 @@ func (m formModel) View() string {
 		builder.WriteString(typeOptsList + "\n")
 	}
 	builder.WriteString("\n")
+
+	if !m.isEdit && !m.isClone {
+		startField(fieldState)
+		builder.WriteString("State:\n")
+		builder.WriteString(renderField(m.initialState.label(), m.focusIndex == fieldState, targetWidth))
+		builder.WriteString("\n\n")
+	}
 
 	startField(fieldPriority)
 	builder.WriteString("Priority:\n")
