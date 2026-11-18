@@ -123,6 +123,7 @@ func (z zoxideOverlay) handleKey(msg tea.KeyMsg) (zoxideOverlay, tea.Cmd, string
 	z.input, cmd = z.input.Update(msg)
 	if z.input.Value() != oldVal {
 		z.loading = true
+		z.paths = nil
 		z.selected = 0
 		return z, tea.Batch(cmd, loadZoxideDirsCmd(z.input.Value())), ""
 	}

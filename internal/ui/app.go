@@ -810,14 +810,16 @@ func (m AppModel) isAnyInputFocused() bool {
 	case stateArticleForm:
 		return m.articleForm.summaryInput.Focused() || m.articleForm.contentInput.Focused()
 	case stateDetail:
-		return m.detail.textInput.Focused() ||
+		return m.detail.zoxide.input.Focused() ||
+			m.detail.textInput.Focused() ||
 			m.detail.commentInput.Focused() ||
 			m.detail.trackTimeDateInput.Focused() ||
 			m.detail.trackTimeDurationInput.Focused() ||
 			m.detail.trackTimeCommentInput.Focused() ||
 			m.detail.estimationInput.Focused()
 	case stateForm:
-		return m.form.summaryInput.Focused() ||
+		return m.form.zoxide.input.Focused() ||
+			m.form.summaryInput.Focused() ||
 			m.form.descTextArea.Focused() ||
 			m.form.assigneeInput.Focused()
 	default:

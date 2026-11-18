@@ -105,6 +105,42 @@ func TestZoxideLoadedMsgStaleQueryIgnored(t *testing.T) {
 	}
 }
 
+func TestZoxideFilterReceivesGlobalShortcutKeys(t *testing.T) {
+	for _, state := range []State{stateDetail, stateForm} {
+		t.Run(string(state), func(t *testing.T) {
+			app := AppModel{state: state, detail: newDetailModel(nil, nil), form: newFormModel(nil, nil)}
+			app.detail.filepickerActive = true
+			app.form.filepickerActive = true
+			for _, key := range "zS?" {
+				next, _ := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{key}})
+				app = next.(AppModel)
+			}
+			z := app.detail.zoxide
+			if state == stateForm {
+				z = app.form.zoxide
+			}
+			if app.searchShow || app.helpShow || z.input.Value() != "S?" {
+				t.Fatalf("filter = %q, global search = %v, global help = %v", z.input.Value(), app.searchShow, app.helpShow)
+			}
+		})
+	}
+}
+
+func TestZoxideEnterWaitsForCurrentFilterResults(t *testing.T) {
+	z, _ := newZoxideOverlay().open()
+	z = z.handleLoaded(zoxideDirsLoadedMsg{Paths: []string{"/old"}})
+	z, _, _ = z.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	z, _, jump := z.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if jump != "" {
+		t.Fatalf("enter during search selected %q", jump)
+	}
+	z = z.handleLoaded(zoxideDirsLoadedMsg{Query: "n", Paths: []string{"/new"}})
+	_, _, jump = z.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if jump != "/new" {
+		t.Fatalf("enter after search selected %q", jump)
+	}
+}
+
 func TestZoxideOverlayRender(t *testing.T) {
 	z := newZoxideOverlay()
 	z.active = true
