@@ -525,6 +525,10 @@ Merging to `main` runs CI; binary releases are a separate maintainer operation. 
 
 The fork has no published binary releases yet. The current release workflow runs independently of the Test workflow and does not enforce a successful test result. Before the first fork release, it needs a test gate and updated release-note/changelog handling: the inherited [cliff.toml](cliff.toml) still links to upstream, and the workflow currently commits the generated changelog directly to `main`. Follow [this fork's releases](https://github.com/JonasLewe/yt-tui/releases) for future downloads; releases do not automatically update installed copies.
 
+## Backlog
+
+- **Issue description templates.** When creating an issue, prefill the description with the team’s editable Markdown template. First confirm how the project supplies it in YouTrack (for example, through a shared template URL or a workflow). Preserve text already entered in the draft.
+
 ## License
 
 YouTrack TUI is licensed under the MIT License. The original copyright and license are preserved in [LICENSE](LICENSE).
