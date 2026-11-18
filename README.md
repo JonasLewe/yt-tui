@@ -479,10 +479,11 @@ Native tags appear as a wrapped list in the scrollable Description pane, so long
 * `Esc` / `Backspace`: Go back to the issues list (or the previous issue if navigated via links).
 
 ### 📝 Issue Form (Create / Clone / Edit)
-* `Tab` / `Shift+Tab` / `↑` / `↓`: Move focus between form fields (Project, Summary, Description, Type, Priority, Assignee). When the **Assignee** field is focused and suggestions are visible, `↑`/`↓` navigates the suggestion list instead.
+* `Tab` / `Shift+Tab` / `↑` / `↓`: Move focus between form fields. When the **Assignee** field is focused and suggestions are visible, `↑`/`↓` navigates the suggestion list instead.
 * On the **Assignee** field: a **live autocomplete dropdown** appears as you type, filtering project members and YouTrack users. Press `Tab` or `Enter` while a suggestion is highlighted to apply its actual YouTrack login. Editing and cloning also preserve the assignee's login, including capitalization and accented characters. You can still type any name freely if the list is empty or the person is not listed; manually entered multi-word names use the configured `username_separator`.
-* `←` / `→` (or `h` / `l`): Cycle options in dropdown fields (Project, Type, Priority).
-* `a`-`z` (on dropdown fields): Pressing the first letter of an option jumps directly to that choice.
+* `←` / `→` (or `h` / `l`): Cycle options in dropdown fields.
+* On a new issue, leave **State** on **Project default** to use the same initial state as the YouTrack web UI (for example, Ready). To choose another state, tab to **State** and press `←` or `→`. Changing project or issue type restores **Project default**.
+* On Project, Type, or Priority, press the first letter of an option to jump to it.
 * `Ctrl+g` (on Description field): Open preferred external editor (using the `$EDITOR` environment variable) to write/edit the description. Set `EDITOR=nvim` to use Neovim with your usual configuration and mappings. Save and exit the editor to return to the draft; `Ctrl+s` submits it to YouTrack. Navigation and shortcuts remain available after returning from the editor.
 * `Ctrl+v` (on Description field): Paste an image directly from the system clipboard (Linux `xclip`/`wl-paste`, macOS, Windows). This injects standard Markdown image syntax and uploads the image to YouTrack on form submission.
 * `Ctrl+f` (on Description field): Open the file browser popup to pick and attach files from your computer. Supports sorting results by name/datetime (pressing `s`) and order asc/desc (pressing `o`). Press `z` to open a [zoxide](https://github.com/ajeetdsouza/zoxide) directory jump overlay (`zoxide` must be on `PATH`): type to filter, `↑`/`↓` to move, `Enter` to jump, `Esc` to return to the browser. Last directory and sorting options are persisted in your config file.
