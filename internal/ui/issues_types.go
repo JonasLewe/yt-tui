@@ -16,7 +16,7 @@ import (
 )
 
 type issueTypesKey struct {
-	serverURL, projectCode, fieldName, fieldConfig string
+	serverURL, projectCode, fieldName, fieldConfig, contextKey string
 }
 
 type issueTypesMsg struct {
@@ -46,7 +46,7 @@ func (m issuesModel) typeKey() issueTypesKey {
 	// Encoding is deterministic for string-keyed maps. Changing an ID-keyed
 	// mapping must also invalidate metadata cached under the short name.
 	encoded, _ := json.Marshal(fields)
-	return issueTypesKey{m.serverURL, m.projectCode, m.cfg.GetTypeFieldName(m.projectCode), string(encoded)}
+	return issueTypesKey{m.serverURL, m.projectCode, m.cfg.GetTypeFieldName(m.projectCode), string(encoded), m.contextKey}
 }
 
 func (m issuesModel) projectAliases() []string {
@@ -54,20 +54,25 @@ func (m issuesModel) projectAliases() []string {
 }
 
 func (m issuesModel) sameServer() bool {
-	return m.client == nil || m.serverURL == m.client.GetConfiguredBaseURL()
+	return m.client == nil || (m.serverURL == m.client.GetConfiguredBaseURL() && m.contextKey == m.clientContext())
 }
 
 // Each context transition gets a generation, including A -> B -> A and refreshes
 // of the same query. Query equality alone cannot reject responses from an old run.
-func (m *issuesModel) startContext(refresh bool) tea.Cmd {
+func (m *issuesModel) startIssueContext(refresh bool) tea.Cmd {
 	m.requestID++
 	m.serverURL = ""
 	if m.client != nil {
 		m.serverURL = m.client.GetConfiguredBaseURL()
 	}
 	m.selectedTypes = nil
+	m.selectedTags = nil
+	m.typeInfoLoading = false
 	if m.projectCode != "" {
 		m.selectedTypes = normalizedTypes(m.cfg.GetFilteredTypes(m.projectCode))
+		if m.tagScopeReady {
+			m.selectedTags = normalizedTags(m.cfg.GetFilteredTags(m.tagScope, m.projectCode))
+		}
 	}
 	m.typeInfo, m.typeInfoErr = ytcli.IssueTypeInfo{}, nil
 	m.err, m.loadingText = nil, ""
@@ -82,6 +87,7 @@ func (m *issuesModel) startContext(refresh bool) tea.Cmd {
 		if info, ok := m.typeInfoCache[m.typeKey()]; ok {
 			m.typeInfo = info
 		} else if m.client != nil {
+			m.typeInfoLoading = true
 			msg := issueTypesMsg{key: m.typeKey(), requestID: m.requestID}
 			client := *m.client
 			var fieldNames map[string]string
@@ -106,10 +112,14 @@ func (m *issuesModel) startContext(refresh bool) tea.Cmd {
 }
 
 func (m *issuesModel) restoreOrLoadIssues() tea.Cmd {
+	if m.typeInfoLoading || (m.tagScopeLoading && m.cfg != nil && len(m.cfg.FilteredTags) > 0) {
+		return nil
+	}
+	m.err = nil
 	if m.projectCode != "" {
 		previous := m.selectedTypes
 		m.selectedTypes = canonicalTypeValues(m.cfg.GetFilteredTypes(m.projectAliases()...), m.typeInfo.Values)
-		if m.filterMode && len(m.filterPanel.sections) == 3 {
+		if m.filterMode && len(m.filterPanel.sections) >= 3 {
 			section := &m.filterPanel.sections[2]
 			if slices.Equal(normalizedTypes(selectedValues(section.Options, section.Selected)), previous) {
 				section.Selected = selection(m.selectedTypes)
@@ -141,6 +151,9 @@ func (m *issuesModel) restoreOrLoadIssues() tea.Cmd {
 			m.loading = false
 			return nil
 		}
+	}
+	if !m.applyTagQuery() {
+		return nil
 	}
 	if cached, ok := m.cache[m.cacheKey()]; ok {
 		m.issues = append([]ytcli.Issue(nil), cached.issues...)
@@ -243,9 +256,9 @@ func (m issuesModel) availableTypes() []string {
 	return normalizedTypes(values)
 }
 
-func (m *issuesModel) openFilters() {
+func (m *issuesModel) openFilters() tea.Cmd {
 	if m.cfg == nil {
-		return
+		return nil
 	}
 	code := m.effectiveProjectCode()
 	sections := []issueFilterSection{
@@ -254,11 +267,16 @@ func (m *issuesModel) openFilters() {
 	}
 	if m.projectCode != "" {
 		sections = append(sections, issueFilterSection{
-			Title: "Types", Options: m.availableTypes(), Selected: selection(m.selectedTypes), AllowAll: true,
+			Title: "Types", Options: m.availableTypes(), Selected: selection(m.selectedTypes), AllowAll: true, AllLabel: "All types",
 		})
+		sections = append(sections, issueFilterSection{Title: "Tags", Options: m.availableTags(), Selected: selection(m.selectedTags), AllowAll: true, AllLabel: "No restriction", Searchable: true})
 	}
 	m.filterPanel = newIssuesFilterPanel(sections)
 	m.filterMode, m.filterError = true, ""
+	if m.projectCode != "" && !m.tagsLoaded && !m.tagsLoading {
+		return m.loadTagsCmd(true)
+	}
+	return nil
 }
 
 func (m *issuesModel) saveFilters() tea.Cmd {
@@ -283,7 +301,7 @@ func (m *issuesModel) saveFilters() tea.Cmd {
 		next.SetFilteredPriorities(code, priorityValues)
 	}
 	typesChanged := false
-	if len(m.filterPanel.sections) == 3 {
+	if len(m.filterPanel.sections) >= 3 {
 		types := m.filterPanel.sections[2]
 		values := normalizedTypes(selectedValues(types.Options, types.Selected))
 		if len(values) > 0 {
@@ -314,13 +332,42 @@ func (m *issuesModel) saveFilters() tea.Cmd {
 			next.SetFilteredTypes(canonical, values)
 		}
 	}
+	tagsChanged := false
+	if len(m.filterPanel.sections) > 3 {
+		tags := m.filterPanel.sections[3]
+		names := normalizedTags(selectedValues(tags.Options, tags.Selected))
+		tagsChanged = !slices.Equal(names, m.selectedTags) || m.unresolvedSavedTagFilter()
+		if tagsChanged {
+			if !m.tagScopeReady {
+				m.filterError = "Tag account unavailable. Close filters and press r to retry."
+				return nil
+			}
+			if _, err := ytcli.TagQuery(names); err != nil {
+				m.filterError = err.Error()
+				return nil
+			}
+			canonical := m.projectCode
+			for _, alias := range m.projectAliases() {
+				if alias != "" {
+					canonical = alias
+					break
+				}
+			}
+			next.SetFilteredTags(m.tagScope, canonical, names)
+			for _, alias := range m.projectAliases() {
+				if alias != canonical {
+					delete(next.FilteredTags[m.tagScope], alias)
+				}
+			}
+		}
+	}
 	if err := config.SaveConfig(&next); err != nil {
 		m.filterError = "Could not save filters: " + err.Error()
 		return nil
 	}
 	*m.cfg = next
 	m.filterMode, m.filterError = false, ""
-	if typesChanged || m.err != nil {
+	if typesChanged || tagsChanged || m.err != nil {
 		return m.startContext(false)
 	}
 	m.updateTableRows()
@@ -330,7 +377,7 @@ func (m *issuesModel) saveFilters() tea.Cmd {
 
 func (m issuesModel) filterNotice() string {
 	if m.projectCode == "" {
-		return "Type filtering is available in project issue lists."
+		return "Type and tag filtering are available in project issue lists."
 	}
 	if m.typeInfoErr != nil {
 		return "Type options unavailable; only saved/observed values shown. [r] Retry after closing filters."
@@ -347,6 +394,9 @@ func (m issuesModel) filterNotice() string {
 func (m issuesModel) filterPanelView() string {
 	width, height := max(1, m.width), max(1, m.height)
 	notice := m.filterNotice()
+	if m.projectCode != "" && (notice == "" || m.filterPanel.section == 3) {
+		notice = m.tagNotice()
+	}
 	if m.filterError != "" {
 		notice = m.filterError
 	}
@@ -369,7 +419,10 @@ func (m issuesModel) filterPanelView() string {
 	if notice != "" {
 		lines = append(lines, ansi.Truncate(notice, width, "…"))
 	}
-	lines = append(lines, "←→/Tab Sections · ↑↓ Move · Space Toggle", "Enter Save · Esc Cancel")
+	lines = append(lines, "←→/Tab Sections · ↑↓ Move · Space Toggle", "Enter Save · Esc Cancel · / Search tags")
+	if m.filterPanel.searchMode {
+		lines[len(lines)-1] = "Enter Finish search · Esc Clear search · Tab Section"
+	}
 	var bounded []string
 	for _, line := range strings.Split(strings.Join(lines, "\n"), "\n") {
 		bounded = append(bounded, ansi.Truncate(line, width, "…"))
@@ -388,6 +441,9 @@ func (m issuesModel) filterSummary() string {
 			value = strings.Join(m.selectedTypes, ", ")
 		}
 		parts = append(parts, "Types: "+value)
+		if len(m.selectedTags) > 0 {
+			parts = append(parts, "Tags (any): "+safeTagLabel(strings.Join(m.selectedTags, ", ")))
+		}
 	}
 	if m.cfg != nil {
 		code := m.effectiveProjectCode()
@@ -418,6 +474,9 @@ func (m issuesModel) filterSummary() string {
 	}
 	if m.typeInfoErr != nil {
 		parts = append(parts, "Type options unavailable (r to retry)")
+	}
+	if m.tagsErr != nil || m.tagScopeErr != nil {
+		parts = append(parts, "Tag options unavailable (r to retry)")
 	}
 	return ansi.Truncate(strings.Join(parts, " · "), max(1, m.width), "…")
 }

@@ -2458,7 +2458,7 @@ func (m *detailModel) updateViewportContents() {
 	if descWrapped == "" {
 		descWrapped = lipgloss.NewStyle().Width(m.descViewport.Width).Render(m.issue.Description)
 	}
-	m.descViewport.SetContent(descWrapped)
+	m.descViewport.SetContent(detailTags(*m.issue, m.descViewport.Width) + "\n\n" + descWrapped)
 
 	// Format and wrap activities
 	var commentsStr strings.Builder

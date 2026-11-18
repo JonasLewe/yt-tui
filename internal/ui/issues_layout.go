@@ -81,7 +81,7 @@ func (m issuesModel) issueHelp() string {
 	if m.width < 145 {
 		return StyleHelp.Render("[F] Filter  [/] Search  [Enter] Detail  [Esc] Back\n[↑↓] Move  [Space] Action  [?] Help  " + quitHelp())
 	}
-	help := "[Esc] Back  [↑↓] Move  [Space] Action  [Enter] Detail  [/] Search  [F] Filter  [f] Favorite  [s] Sort  [n] New  [r] Refresh  [?] Help  " + quitHelp()
+	help := "[Esc] Back  [↑↓] Move  [Space] Action  [Enter] Detail  [/] Search  [F] Filter  [s] Sort  [n] New  [r] Refresh  [?] Help  " + quitHelp()
 	if m.projectCode != "" && m.projectCode != "ME" {
 		help = "[K] Knowledge Base  " + help
 	}

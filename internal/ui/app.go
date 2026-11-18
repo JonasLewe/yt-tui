@@ -291,20 +291,6 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		if msg.String() == "f" && m.state == stateDashboard {
-			if cfg, err := config.LoadConfig(); err == nil {
-				*m.cfg = *cfg
-			}
-			favView := m.cfg.GetFavoriteView(m.client.GetConfiguredBaseURL())
-			if favView == "" {
-				m.status = "No favourite view set yet."
-				m.isStatusErr = true
-				return m, nil
-			}
-			m.history = append(m.history, navEntry{state: m.state, data: m.stateData})
-			cmd := m.switchState(stateIssues, favView, false)
-			return m, cmd
-		}
 		if m.canUseQuitKeys() {
 			switch msg.String() {
 			case "q":
@@ -818,7 +804,7 @@ func (m AppModel) isAnyInputFocused() bool {
 	case stateWelcome:
 		return m.welcome.urlInput.Focused() || m.welcome.tokenInput.Focused()
 	case stateIssues:
-		return m.issues.searchMode
+		return m.issues.searchMode || (m.issues.filterMode && m.issues.filterPanel.searchMode)
 	case stateArticles:
 		return m.articles.searchMode
 	case stateArticleForm:
@@ -878,7 +864,6 @@ func (m AppModel) renderHelpPopup() string {
 			{"n", "Create new issue"},
 			{"p", "Open Projects view"},
 			{"b", "Open Boards view"},
-			{"f", "Open Favorite view"},
 		}),
 		"",
 		formatSection("Projects", [][2]string{
@@ -906,8 +891,7 @@ func (m AppModel) renderHelpPopup() string {
 			{"Enter", "View issue details"},
 			{"K", "View project's knowledge base"},
 			{"/", "Search/filter phrase"},
-			{"F", "Filter state/priority/type"},
-			{"f", "Toggle view favorite"},
+			{"F", "Filter state/priority/type/tags"},
 			{"s", "Sort issues list"},
 			{"n", "Create new issue"},
 			{"r", "Refresh issues list"},

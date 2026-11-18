@@ -15,7 +15,7 @@ import (
 )
 
 type issuesCacheKey struct {
-	serverURL, projectCode, query, agileID, sprintID string
+	serverURL, projectCode, query, agileID, sprintID, contextKey string
 }
 
 type projectCache struct {
@@ -61,6 +61,18 @@ type issuesModel struct {
 	requestID           uint64
 	serverQuery         string
 	selectedTypes       []string
+	contextKey          string
+	selectedTags        []string
+	tagScope            string
+	tagScopeReady       bool
+	tagScopeLoading     bool
+	tagScopeErr         error
+	tags                []ytcli.Tag
+	tagsLoaded          bool
+	tagsLoading         bool
+	tagsRequestID       uint64
+	tagsErr             error
+	typeInfoLoading     bool
 	typeInfo            ytcli.IssueTypeInfo
 	typeInfoErr         error
 	typeInfoCache       map[issueTypesKey]ytcli.IssueTypeInfo
@@ -220,7 +232,7 @@ type issuesDataMsg struct {
 }
 
 func (m *issuesModel) cacheKey() issuesCacheKey {
-	return issuesCacheKey{m.serverURL, m.projectCode, m.serverQuery, m.agileID, m.sprintID}
+	return issuesCacheKey{m.serverURL, m.projectCode, m.serverQuery, m.agileID, m.sprintID, m.contextKey}
 }
 
 func (m issuesModel) loadIssuesCmd() tea.Cmd {
@@ -658,22 +670,6 @@ func (m *issuesModel) restoreCursor() {
 	}
 }
 
-func (m *issuesModel) currentViewData() string {
-	if m.projectCode != "" {
-		return m.projectCode
-	}
-	if m.query == "reporter: me" {
-		return "ME"
-	}
-	if strings.HasPrefix(m.query, "sprint:") {
-		return m.query
-	}
-	if m.query != "" {
-		return "query:" + m.query
-	}
-	return ""
-}
-
 func (m *issuesModel) effectiveProjectCode() string {
 	if m.projectCode != "" {
 		return m.projectCode
@@ -768,13 +764,37 @@ func (m issuesModel) Update(msg tea.Msg) (issuesModel, tea.Cmd) {
 			return m, nil
 		}
 		m.typeInfo, m.typeInfoErr = msg.info, msg.err
+		m.typeInfoLoading = false
 		if msg.err == nil {
 			m.typeInfoCache[msg.key] = msg.info
 		}
-		if m.filterMode && len(m.filterPanel.sections) == 3 {
+		if m.filterMode && len(m.filterPanel.sections) >= 3 {
 			m.filterPanel.sections[2].Options = m.availableTypes()
 		}
-		return m, m.restoreOrLoadIssues()
+		cmd = m.restoreOrLoadIssues()
+		return m, cmd
+
+	case issueTagsMsg:
+		if msg.contextKey != m.contextKey || msg.requestID != m.requestID || msg.metadataID != m.tagsRequestID || !m.sameServer() {
+			return m, nil
+		}
+		wasWaiting := m.tagScopeLoading && m.cfg != nil && len(m.cfg.FilteredTags) > 0
+		m.tagScopeLoading = false
+		m.tagScope, m.tagScopeErr = msg.scope, msg.scopeErr
+		m.tagScopeReady = msg.scopeErr == nil
+		if msg.withTags {
+			m.tagsLoading, m.tagsLoaded = false, msg.scopeErr == nil && msg.err == nil
+			m.tags, m.tagsErr = msg.tags, msg.err
+		}
+		if m.filterMode && len(m.filterPanel.sections) > 3 {
+			m.filterPanel.sections[3].Options = m.availableTags()
+			m.filterPanel.clamp()
+		}
+		if wasWaiting {
+			cmd = m.restoreOrLoadIssues()
+			return m, cmd
+		}
+		return m, nil
 
 	case issuesDataMsg:
 		if msg.context != m.cacheKey() || msg.requestID != m.requestID || msg.skip != m.skip || !m.sameServer() {
@@ -818,7 +838,8 @@ func (m issuesModel) Update(msg tea.Msg) (issuesModel, tea.Cmd) {
 			return m, nil
 		}
 		m.invalidateCache(m.projectCode)
-		return m, m.startContext(false)
+		cmd = m.startContext(false)
+		return m, cmd
 
 	case tea.KeyMsg:
 		if m.actionMode && m.cfg != nil {
@@ -964,14 +985,22 @@ func (m issuesModel) Update(msg tea.Msg) (issuesModel, tea.Cmd) {
 		}
 
 		if m.filterMode {
+			if m.filterPanel.searchMode {
+				cmd = m.filterPanel.updateSearch(msg)
+				return m, cmd
+			}
 			switch msg.String() {
+			case "/":
+				cmd = m.filterPanel.startSearch()
+				return m, cmd
 			case "esc":
 				m.filterMode = false
 				m.filterError = ""
 			case " ":
 				m.filterPanel.toggle()
 			case "enter":
-				return m, m.saveFilters()
+				cmd = m.saveFilters()
+				return m, cmd
 			default:
 				m.filterPanel.move(msg.String())
 			}
@@ -1027,21 +1056,9 @@ func (m issuesModel) Update(msg tea.Msg) (issuesModel, tea.Cmd) {
 					return pushStateMsg{state: stateArticles, data: projectCode}
 				}
 			}
-		case "f":
-			if m.cfg != nil {
-				currentView := m.currentViewData()
-				url := m.client.GetConfiguredBaseURL()
-				if m.cfg.GetFavoriteView(url) == currentView {
-					m.cfg.SetFavoriteView(url, "")
-				} else {
-					m.cfg.SetFavoriteView(url, currentView)
-				}
-				_ = config.SaveConfig(m.cfg)
-			}
-			return m, nil
 		case "F":
-			m.openFilters()
-			return m, nil
+			cmd = m.openFilters()
+			return m, cmd
 		case "s":
 			if m.cfg != nil {
 				m.sortMode = true
@@ -1085,7 +1102,8 @@ func (m issuesModel) Update(msg tea.Msg) (issuesModel, tea.Cmd) {
 				return pushStateMsg{state: stateForm, data: m.effectiveProjectCode()}
 			}
 		case "r":
-			return m, m.startContext(true)
+			cmd = m.startContext(true)
+			return m, cmd
 		}
 
 		// Let the table handle navigation keys
@@ -1244,14 +1262,8 @@ func (m issuesModel) renderView() string {
 	} else {
 		titleText = fmt.Sprintf(" Issues%s ", statusSuffix)
 	}
-	url := m.serverURL
-	isFavorite := m.cfg != nil && m.cfg.GetFavoriteView(url) != "" && m.cfg.GetFavoriteView(url) == m.currentViewData()
-	var starStr string
-	if isFavorite {
-		starStr = lipgloss.NewStyle().Foreground(lipgloss.Color(ColorYellow)).Bold(true).Render("★ ")
-	}
 	titleTextStyled := lipgloss.NewStyle().Foreground(lipgloss.Color(ColorViolet)).Bold(true).Render(titleText)
-	title := lipgloss.NewStyle().MarginBottom(1).Render(starStr + titleTextStyled)
+	title := lipgloss.NewStyle().MarginBottom(1).Render(titleTextStyled)
 
 	m.updateTableColumns()
 	m.updateTableHeight()

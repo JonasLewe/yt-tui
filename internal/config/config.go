@@ -167,6 +167,7 @@ type Config struct {
 	FilteredStates      FilteredStatesMap     `json:"filtered_states"`
 	FilteredPriorities  FilteredPrioritiesMap `json:"filtered_priorities"`
 	FilteredTypes       map[string][]string   `json:"filtered_types,omitempty"`
+	FilteredTags        FilteredTagsMap       `json:"filtered_tags,omitempty"`
 	TypeFieldName       map[string]string     `json:"type_field_name,omitempty"`
 	SortColumn          string                `json:"sort_column"`
 	SortDirection       string                `json:"sort_direction"`
