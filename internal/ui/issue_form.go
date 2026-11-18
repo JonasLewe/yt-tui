@@ -63,9 +63,10 @@ type formModel struct {
 	customPriorities []string
 
 	// Assignee autocomplete
-	allUsers      []ytcli.User // all available members/users
-	filteredUsers []ytcli.User // users matching current input
-	userCursor    int          // highlighted row in suggestion list
+	createAssignee createAssignee
+	allUsers       []ytcli.User // all available members/users
+	filteredUsers  []ytcli.User // users matching current input
+	userCursor     int          // highlighted row in suggestion list
 
 	pastedImages []PastedImage
 
@@ -154,8 +155,9 @@ type projectsLoadedMsg struct {
 }
 
 type usersLoadedMsg struct {
-	users []ytcli.User
-	err   error
+	request uint64
+	users   []ytcli.User
+	err     error
 }
 
 func (m formModel) loadFormDataCmd(key string) tea.Cmd {
@@ -184,7 +186,7 @@ func (m formModel) loadUsersCmd(projectCode string) tea.Cmd {
 		if len(users) == 0 {
 			users, err = m.client.ListUsers()
 		}
-		return usersLoadedMsg{users: users, err: err}
+		return usersLoadedMsg{request: m.createAssignee.request, users: users, err: err}
 	}
 }
 
@@ -306,6 +308,9 @@ func (m *formModel) setupForm(data string) tea.Cmd {
 	m.summaryInput.SetValue("")
 	m.descTextArea.SetValue("")
 	m.assigneeInput.SetValue("")
+	m.assigneeInput.Placeholder = "Unassigned"
+	m.createAssignee = createAssignee{request: m.createAssignee.request + 1}
+	m.initialProjectCode = ""
 	m.projects = nil
 	m.projectIndex = 0
 	m.typeIndex = 0
@@ -436,8 +441,27 @@ func (m formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 		}
 		return m, tea.ClearScreen
 
+	case projectAssigneeLoadedMsg:
+		if msg.request == m.createAssignee.request {
+			m.createAssignee.field = &msg.field
+			switch {
+			case msg.field.Name == "":
+				m.assigneeInput.Placeholder = "No Assignee field in this project"
+				m.assigneeInput.SetValue("")
+				m.filteredUsers = nil
+				if m.focusIndex == fieldAssignee {
+					m.nextField()
+				}
+			case msg.field.Required:
+				m.assigneeInput.Placeholder = "Required · type a username"
+			default:
+				m.assigneeInput.Placeholder = "Unassigned"
+			}
+		}
+		return m, nil
+
 	case usersLoadedMsg:
-		if msg.err == nil {
+		if msg.request == m.createAssignee.request && msg.err == nil {
 			m.allUsers = msg.users
 			m.filteredUsers = m.filterUsers(m.assigneeInput.Value())
 			m.userCursor = 0
@@ -453,10 +477,9 @@ func (m formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 		m.projects = msg.projects
 		if m.initialProjectCode != "" {
 			m.setProjectByCode(m.initialProjectCode)
-			// Refresh user list for this project.
-			return m, m.loadUsersCmd(m.initialProjectCode)
 		}
-		return m, nil
+		cmd = m.refreshAssignee()
+		return m, cmd
 
 	case formDataLoadedMsg:
 		m.loading = false
@@ -478,6 +501,7 @@ func (m formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 		m.descTextArea.SetValue(issue.Description)
 		m.setTypeByValue(issue.Type())
 		m.setPriorityByValue(issue.Priority())
+		m.assigneeInput.Placeholder = "Assignee username (or 'me', 'unassigned')"
 		m.assigneeInput.SetValue(issue.AssigneeLogin())
 
 		if issue.Project != nil {
@@ -490,7 +514,8 @@ func (m formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 		m.blurCurrent()
 		m.focusIndex = fieldSummary
 		m.focusCurrent()
-		return m, nil
+		cmd = m.refreshAssignee()
+		return m, cmd
 
 	case formSubmittedMsg:
 		m.loading = false
@@ -723,7 +748,8 @@ func (m formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 					if len(m.projects) > 0 {
 						m.projectIndex = (m.projectIndex - 1 + len(m.projects)) % len(m.projects)
 					}
-					return m, nil
+					cmd = m.refreshAssignee()
+					return m, cmd
 				case fieldType:
 					opts := m.getTypes()
 					if len(opts) > 0 {
@@ -759,7 +785,8 @@ func (m formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 					if len(m.projects) > 0 {
 						m.projectIndex = (m.projectIndex + 1) % len(m.projects)
 					}
-					return m, nil
+					cmd = m.refreshAssignee()
+					return m, cmd
 				case fieldType:
 					opts := m.getTypes()
 					if len(opts) > 0 {
@@ -818,7 +845,8 @@ func (m formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 							break
 						}
 					}
-					return m, nil
+					cmd = m.refreshAssignee()
+					return m, cmd
 				}
 			}
 
@@ -878,6 +906,9 @@ func (m formModel) filterUsers(query string) []ytcli.User {
 		return nil
 	}
 	if q == "" {
+		if !m.isEdit && !m.isClone {
+			return nil
+		}
 		// Show all when field is empty but focused
 		result := make([]ytcli.User, len(m.allUsers))
 		copy(result, m.allUsers)
@@ -903,7 +934,9 @@ func (m formModel) canFocusField(field formField) bool {
 	switch field {
 	case fieldProject:
 		return !m.isEdit
-	case fieldSummary, fieldDescription, fieldType, fieldPriority, fieldAssignee:
+	case fieldAssignee:
+		return !m.noAssigneeField()
+	case fieldSummary, fieldDescription, fieldType, fieldPriority:
 		return true
 	default:
 		return !m.isEdit && !m.isClone
