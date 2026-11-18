@@ -1,12 +1,81 @@
 package ui
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"yt-tui/internal/ytcli"
 
 	"github.com/charmbracelet/bubbletea"
 )
+
+func TestCreateFieldsFollowProjectAndRetainUnassignedOnTab(t *testing.T) {
+	m := newFormModel(nil, nil)
+	m.setupForm("DEMO")
+	m, _ = m.Update(projectsLoadedMsg{form: m.formNumber, projects: []ytcli.Project{
+		{ID: "0-1", ShortName: "DEMO"}, {ID: "0-2", ShortName: "NEXT"},
+	}})
+	meta := createFieldsLoadedMsg{form: m.formNumber, version: m.createFields.version, project: "DEMO", fields: ytcli.IssueCreateFields{States: []ytcli.CreateState{{ID: "s1", Name: "Ready"}}}}
+	m, _ = m.Update(meta)
+	m, _ = m.Update(usersLoadedMsg{form: m.formNumber, project: "DEMO", users: []ytcli.User{{Login: "somebody"}}})
+	m.focusIndex = fieldAssignee
+	m.focusCurrent()
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	if m.assigneeInput.Value() != "" || m.focusIndex != fieldState || m.createFields.stateIndex != 0 {
+		t.Fatal("tabbing through Assignee changed the new issue defaults")
+	}
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	if m.createFields.stateIndex != 1 {
+		t.Fatal("could not select a project state")
+	}
+	m.focusIndex = fieldProject
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	m, _ = m.Update(meta)
+	if m.createFields.project != "NEXT" || m.createFields.stateIndex != 0 || m.createFields.metaReady || len(m.createFields.meta.States) != 0 {
+		t.Fatal("previous project's state restored by late response")
+	}
+}
+
+func TestCreateTagSearchSelectsIdentities(t *testing.T) {
+	m := newFormModel(nil, nil)
+	m.setupForm("DEMO")
+	m.focusIndex = fieldTags
+	m, _ = m.Update(createTagsLoadedMsg{form: m.formNumber, tags: []ytcli.Tag{
+		{ID: "t1", Name: "Review", Owner: &ytcli.User{Login: "alex"}},
+		{ID: "t2", Name: "Review", Owner: &ytcli.User{Login: "sam"}},
+	}})
+	for _, msg := range []tea.KeyMsg{
+		{Type: tea.KeyRunes, Runes: []rune("/")},
+		{Type: tea.KeyRunes, Runes: []rune("sam")},
+		{Type: tea.KeyEnter},
+		{Type: tea.KeySpace},
+	} {
+		m, _ = m.Update(msg)
+	}
+	if !slices.Equal(m.createFields.tagIDs, []string{"t2"}) || m.createFields.tagSearching {
+		t.Fatalf("search selected wrong tag: %+v", m.createFields.tagIDs)
+	}
+	for _, msg := range []tea.KeyMsg{
+		{Type: tea.KeyRunes, Runes: []rune("/")},
+		{Type: tea.KeyEsc},
+		{Type: tea.KeySpace},
+	} {
+		m, _ = m.Update(msg)
+	}
+	if !slices.Equal(m.createFields.tagIDs, []string{"t2", "t1"}) {
+		t.Fatalf("same-name tags collapsed to %v", m.createFields.tagIDs)
+	}
+}
+
+func TestChangingIssueTypeRestoresWorkflowState(t *testing.T) {
+	m := newFormModel(nil, nil)
+	m.focusIndex = fieldType
+	m.createFields.stateIndex = 1
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	if m.typeIndex == 0 || m.createFields.stateIndex != 0 {
+		t.Fatal("changing issue type must restore the project's initial state")
+	}
+}
 
 func TestFormLoadsAssigneeLogin(t *testing.T) {
 	for _, mode := range []string{"edit", "clone"} {
@@ -36,8 +105,9 @@ func TestFormAssigneeSuggestionUsesLogin(t *testing.T) {
 		t.Run(msg.String(), func(t *testing.T) {
 			m := newFormModel(nil, nil)
 			m.focusIndex = fieldAssignee
+			m.assigneeInput.SetValue("Jane")
+			m.allUsers = []ytcli.User{{Login: "JSmith42", FullName: "Jane Smith"}}
 			m.focusCurrent()
-			m.filteredUsers = []ytcli.User{{Login: "JSmith42", FullName: "Jane Smith"}}
 			m, _ = m.Update(msg)
 			if got := m.assigneeInput.Value(); got != "JSmith42" {
 				t.Fatalf("selected assignee = %q, want API login JSmith42", got)

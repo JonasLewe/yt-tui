@@ -815,38 +815,8 @@ func (c *Client) ListIssueLinkTypes() ([]IssueLinkType, error) {
 	if c.baseURL == "" || c.token == "" {
 		return nil, errors.New("missing YouTrack connection URL or token")
 	}
-
-	baseURL := c.baseURL
-	if !strings.HasSuffix(baseURL, "/") {
-		baseURL += "/"
-	}
-	apiURL := baseURL + "api/issueLinkTypes"
-
-	// Query parameters
-	params := url.Values{}
-	params.Set("fields", "id,name,localizedName,sourceToTarget,localizedSourceToTarget,targetToSource,localizedTargetToSource,directed")
-	apiURL += "?" + params.Encode()
-
-	req, err := c.newRequest("GET", apiURL, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	body, statusCode, err := c.doRequest(req)
-	if err != nil {
-		return nil, err
-	}
-
-	if statusCode != http.StatusOK {
-		return nil, parseAPIError(statusCode, body)
-	}
-
-	var linkTypes []IssueLinkType
-	if err := json.Unmarshal(body, &linkTypes); err != nil {
-		return nil, err
-	}
-
-	return linkTypes, nil
+	return fetchPages[IssueLinkType](c, "api/issueLinkTypes",
+		"id,name,localizedName,sourceToTarget,localizedSourceToTarget,targetToSource,localizedTargetToSource,directed")
 }
 
 // AddIssueLink creates a link between two issues.
@@ -1368,6 +1338,10 @@ func (c *Client) getProjectIDByShortName(shortName string) (string, error) {
 
 // CreateIssue creates a new issue and returns its readable ID.
 func (c *Client) CreateIssue(projectID, summary, description, priority, issueType, assignee string) (string, error) {
+	return c.CreateIssueWithOptions(projectID, summary, description, priority, issueType, assignee, CreateIssueOptions{})
+}
+
+func (c *Client) CreateIssueWithOptions(projectID, summary, description, priority, issueType, assignee string, opts CreateIssueOptions) (string, error) {
 	if c.baseURL == "" || c.token == "" {
 		return "", errors.New("missing YouTrack connection URL or token")
 	}
@@ -1405,7 +1379,33 @@ func (c *Client) CreateIssue(projectID, summary, description, priority, issueTyp
 			assignee = resolved
 		}
 	}
-	if assignee != "" {
+	if opts.Fields != nil {
+		meta := opts.Fields
+		if assignee == "" && meta.AssigneeRequired {
+			return "", fmt.Errorf("%s is required in this project; select a user", meta.AssigneeName)
+		}
+		if meta.AssigneeName == "" && assignee != "" {
+			return "", errors.New("this project has no Assignee field")
+		}
+		if meta.AssigneeName != "" {
+			fieldType := "SingleUserIssueCustomField"
+			var value any
+			if meta.AssigneeMulti {
+				fieldType = "MultiUserIssueCustomField"
+				users := []map[string]string{}
+				if assignee != "" {
+					users = append(users, map[string]string{"login": assignee})
+				}
+				value = users
+			} else if assignee != "" {
+				value = map[string]string{"login": assignee}
+			}
+			customFields = append(customFields, map[string]any{"name": meta.AssigneeName, "$type": fieldType, "value": value})
+		}
+		if opts.StateID != "" {
+			customFields = append(customFields, map[string]any{"name": meta.StateName, "$type": "StateIssueCustomField", "value": map[string]string{"id": opts.StateID}})
+		}
+	} else if assignee != "" {
 		customFields = append(customFields, map[string]interface{}{
 			"name":  "Assignee",
 			"$type": "SingleUserIssueCustomField",
@@ -1424,6 +1424,14 @@ func (c *Client) CreateIssue(projectID, summary, description, priority, issueTyp
 	}
 	if len(customFields) > 0 {
 		payload["customFields"] = customFields
+	}
+
+	if len(opts.TagIDs) > 0 {
+		tags := make([]map[string]string, 0, len(opts.TagIDs))
+		for _, id := range opts.TagIDs {
+			tags = append(tags, map[string]string{"id": id})
+		}
+		payload["tags"] = tags
 	}
 
 	baseURL := c.baseURL

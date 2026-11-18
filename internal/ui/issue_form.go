@@ -27,16 +27,22 @@ const (
 	fieldType
 	fieldPriority
 	fieldAssignee
+	fieldState
+	fieldTags
+	fieldLinks
 	numFields // total count
 )
 
 type formModel struct {
+	formNumber   int
+	createFields newIssueFields
 	client       *ytcli.Client
 	cfg          *config.Config
 	loading      bool
 	isClone      bool
 	cloneKey     string
 	cloneIssueID string
+	pendingSave  *pendingIssueSave
 	isEdit       bool
 	editKey      string
 	err          error
@@ -67,6 +73,7 @@ type formModel struct {
 	filteredUsers []ytcli.User // users matching current input
 	userCursor    int          // highlighted row in suggestion list
 
+	links        formIssueLinks
 	pastedImages []PastedImage
 
 	filepicker       filepicker.Model
@@ -134,11 +141,13 @@ func newFormModel(client *ytcli.Client, cfg *config.Config) formModel {
 }
 
 type formDataLoadedMsg struct {
+	form  int
 	issue *ytcli.Issue
 	err   error
 }
 
 type formSubmittedMsg struct {
+	pending *pendingIssueSave
 	issueID string
 	err     error
 }
@@ -149,26 +158,29 @@ type cloneSubmittedMsg struct {
 }
 
 type projectsLoadedMsg struct {
+	form     int
 	projects []ytcli.Project
 	err      error
 }
 
 type usersLoadedMsg struct {
-	users []ytcli.User
-	err   error
+	form    int
+	project string
+	users   []ytcli.User
+	err     error
 }
 
 func (m formModel) loadFormDataCmd(key string) tea.Cmd {
 	return func() tea.Msg {
 		issue, err := m.client.GetIssue(key)
-		return formDataLoadedMsg{issue: issue, err: err}
+		return formDataLoadedMsg{form: m.formNumber, issue: issue, err: err}
 	}
 }
 
 func (m formModel) loadProjectsCmd() tea.Cmd {
 	return func() tea.Msg {
 		projects, err := m.client.ListProjects()
-		return projectsLoadedMsg{projects: projects, err: err}
+		return projectsLoadedMsg{form: m.formNumber, projects: projects, err: err}
 	}
 }
 
@@ -184,7 +196,7 @@ func (m formModel) loadUsersCmd(projectCode string) tea.Cmd {
 		if len(users) == 0 {
 			users, err = m.client.ListUsers()
 		}
-		return usersLoadedMsg{users: users, err: err}
+		return usersLoadedMsg{form: m.formNumber, project: projectCode, users: users, err: err}
 	}
 }
 
@@ -204,6 +216,14 @@ func (m *formModel) setProjectByCode(code string) {
 			m.projectIndex = i
 			return
 		}
+	}
+}
+
+func (m *formModel) selectIssueType(index int) {
+	if m.typeIndex != index {
+		// A type-specific workflow can supply a different initial state.
+		m.createFields.stateIndex = 0
+		m.typeIndex = index
 	}
 }
 
@@ -277,14 +297,10 @@ func (m formModel) getPriorities() []string {
 // formTargetWidth returns the target width for form fields based on the
 // current form width.
 func (m formModel) formTargetWidth() int {
-	targetWidth := m.width - 8
-	if targetWidth < 40 {
-		targetWidth = 40
+	if m.width <= 0 {
+		return 40
 	}
-	if targetWidth > 80 {
-		targetWidth = 80
-	}
-	return targetWidth
+	return max(4, min(80, m.width-8))
 }
 
 // applyInputSizes applies the computed width to the stored input models so that
@@ -293,13 +309,23 @@ func (m *formModel) applyInputSizes() {
 	targetWidth := m.formTargetWidth()
 	m.summaryInput.Width = targetWidth - 2
 	m.descTextArea.SetWidth(targetWidth - 2)
+	if m.height > 0 {
+		m.descTextArea.SetHeight(max(1, min(10, m.height-10)))
+	}
 	m.assigneeInput.Width = targetWidth - 2
 }
 
 func (m *formModel) setupForm(data string) tea.Cmd {
+	data, linkCmd := m.setupIssueLinks(data)
 	m.isClone = false
 	m.cloneKey = ""
+	m.initialProjectCode = ""
+	m.formNumber++
+	m.createFields = newIssueFields{tagSearch: textinput.New()}
+	m.createFields.tagSearch.Placeholder = "Find tags by name or owner"
 	m.cloneIssueID = ""
+	m.pendingSave = nil
+	m.errPopupShow = false
 	m.isEdit = false
 	m.editKey = ""
 	m.loading = false
@@ -307,6 +333,7 @@ func (m *formModel) setupForm(data string) tea.Cmd {
 	m.summaryInput.SetValue("")
 	m.descTextArea.SetValue("")
 	m.assigneeInput.SetValue("")
+	m.assigneeInput.Placeholder = "Unassigned"
 	m.projects = nil
 	m.projectIndex = 0
 	m.typeIndex = 0
@@ -322,8 +349,7 @@ func (m *formModel) setupForm(data string) tea.Cmd {
 	m.applyInputSizes()
 
 	var cmds []tea.Cmd
-	cmds = append(cmds, m.loadProjectsCmd())
-	cmds = append(cmds, m.loadUsersCmd("")) // load users; will be refreshed when project is known
+	cmds = append(cmds, m.loadProjectsCmd(), linkCmd)
 
 	if strings.HasPrefix(data, "clone:") {
 		m.isClone = true
@@ -347,6 +373,9 @@ func (m *formModel) setupForm(data string) tea.Cmd {
 		m.focusCurrent()
 	}
 
+	if !m.isEdit && !m.isClone {
+		cmds = append(cmds, m.loadCreateTags())
+	}
 	return tea.Batch(cmds...)
 }
 
@@ -357,9 +386,44 @@ func (m formModel) Init() tea.Cmd {
 func (m formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 	var cmd tea.Cmd
 
+	switch msg := msg.(type) {
+	case createFieldsLoadedMsg:
+		if msg.form == m.formNumber && msg.version == m.createFields.version && msg.project == m.createFields.project {
+			m.createFields.metaReady = true
+			m.createFields.meta = msg.fields
+			m.createFields.metaErr = msg.err
+			m.createFields.stateIndex = 0
+			switch {
+			case m.createFields.meta.AssigneeName == "":
+				m.assigneeInput.SetValue("")
+				m.assigneeInput.Placeholder = "No Assignee field in this project"
+				m.filteredUsers = nil
+				if m.focusIndex == fieldAssignee {
+					m.nextField()
+				}
+			case m.createFields.meta.AssigneeRequired:
+				m.assigneeInput.Placeholder = "Required · type a username"
+			default:
+				m.assigneeInput.Placeholder = "Unassigned"
+			}
+		}
+		return m, nil
+	case createTagsLoadedMsg:
+		if msg.form == m.formNumber {
+			m.createFields.tags, m.createFields.tagsErr = msg.tags, msg.err
+			m.createFields.tagsLoaded = true
+			m.createFields.tagIndex = 0
+		}
+		return m, nil
+	}
+
 	// Keep input sizes applied to the stored models so cursor navigation and
 	// viewport scrolling use the same width as rendering.
 	m.applyInputSizes()
+
+	if handled, cmd := m.updateIssueLinks(msg); handled {
+		return m, cmd
+	}
 
 	if m.filepickerActive {
 		zres := applyFilepickerZoxide(m.zoxide, m.filepicker, msg)
@@ -407,9 +471,7 @@ func (m formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 			}
 			return m, fpCmd
 		default:
-			var fpCmd tea.Cmd
-			m.filepicker, fpCmd = m.filepicker.Update(msg)
-			return m, fpCmd
+			m.filepicker, cmd = m.filepicker.Update(msg)
 		}
 	}
 
@@ -438,7 +500,7 @@ func (m formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 		return m, tea.ClearScreen
 
 	case usersLoadedMsg:
-		if msg.err == nil {
+		if msg.form == m.formNumber && msg.project == m.getSelectedProjectCode() && msg.err == nil {
 			m.allUsers = msg.users
 			m.filteredUsers = m.filterUsers(m.assigneeInput.Value())
 			m.userCursor = 0
@@ -446,6 +508,9 @@ func (m formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 		return m, nil
 
 	case projectsLoadedMsg:
+		if msg.form != m.formNumber {
+			return m, nil
+		}
 		if msg.err != nil {
 			m.err = msg.err
 			m.errPopupShow = true
@@ -454,12 +519,14 @@ func (m formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 		m.projects = msg.projects
 		if m.initialProjectCode != "" {
 			m.setProjectByCode(m.initialProjectCode)
-			// Refresh user list for this project.
-			return m, m.loadUsersCmd(m.initialProjectCode)
 		}
-		return m, nil
+		cmd = m.refreshProjectFields()
+		return m, cmd
 
 	case formDataLoadedMsg:
+		if msg.form != m.formNumber {
+			return m, nil
+		}
 		m.loading = false
 		if msg.err != nil {
 			m.err = msg.err
@@ -477,8 +544,6 @@ func (m formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 			m.summaryInput.SetValue(issue.Summary)
 		}
 		m.descTextArea.SetValue(issue.Description)
-		m.setTypeByValue(issue.Type())
-		m.setPriorityByValue(issue.Priority())
 		m.assigneeInput.SetValue(issue.AssigneeLogin())
 
 		if issue.Project != nil {
@@ -488,13 +553,21 @@ func (m formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 			}
 		}
 
+		m.setTypeByValue(issue.Type())
+		m.setPriorityByValue(issue.Priority())
 		m.blurCurrent()
 		m.focusIndex = fieldSummary
 		m.focusCurrent()
-		return m, nil
+		cmd = m.refreshProjectFields()
+		return m, cmd
 
 	case formSubmittedMsg:
 		m.loading = false
+		m.pendingSave = msg.pending
+		if msg.pending != nil {
+			m.err = msg.err
+			return m, nil
+		}
 		if msg.err != nil {
 			m.err = msg.err
 			m.errPopupShow = true
@@ -516,6 +589,12 @@ func (m formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 		}
 
 	case tea.KeyMsg:
+		if m.loading {
+			return m, nil
+		}
+		if m.pendingSave != nil {
+			return m.updatePendingSave(msg)
+		}
 		// Handle error popup keys
 		if m.errPopupShow {
 			if msg.String() == "y" && m.err != nil {
@@ -525,9 +604,12 @@ func (m formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 			m.err = nil
 			return m, nil
 		}
+		if handled, cmd := m.updateCreateFieldKey(msg); handled {
+			return m, cmd
+		}
 		switch msg.String() {
 		case "ctrl+v", "ctrl+shift+v", "ctrl+V":
-			if !m.loading && m.focusIndex == fieldDescription {
+			if m.focusIndex == fieldDescription {
 				imgBytes, contentType, err := getClipboardImage()
 				if err == nil && len(imgBytes) > 0 {
 					ext := "png"
@@ -548,7 +630,7 @@ func (m formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 				}
 			}
 		case "ctrl+f":
-			if !m.loading && m.focusIndex == fieldDescription {
+			if m.focusIndex == fieldDescription {
 				m.filepickerActive = true
 				h := m.height - 14
 				if h < 4 {
@@ -558,125 +640,30 @@ func (m formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 				return m, m.filepicker.Init()
 			}
 		case "ctrl+g":
-			if !m.loading && m.focusIndex == fieldDescription {
+			if m.focusIndex == fieldDescription {
 				return m, m.openEditorCmd()
 			}
 		case "esc":
-			if !m.loading {
-				return m, func() tea.Msg {
-					return popStateMsg{}
-				}
-			}
+			return m, func() tea.Msg { return popStateMsg{} }
 		case "ctrl+s":
-			if !m.loading {
-				var proj string
-				if len(m.projects) > 0 {
-					proj = m.projects[m.projectIndex].ShortName
-				} else {
-					proj = m.initialProjectCode
-				}
-
-				sum := m.summaryInput.Value()
-				if proj == "" || sum == "" {
-					m.err = fmt.Errorf("Project and Summary fields are required")
-					m.errPopupShow = true
-					return m, nil
-				}
-
-				var issueType string
-				types := m.getTypes()
-				if len(types) > 0 {
-					issueType = types[m.typeIndex]
-					if issueType == "(Default)" {
-						issueType = ""
-					}
-				}
-
-				var priority string
-				priorities := m.getPriorities()
-				if len(priorities) > 0 {
-					priority = priorities[m.priorityIndex]
-					if priority == "(Default)" {
-						priority = ""
-					}
-				}
-
-				m.loading = true
-				m.err = nil
-				if m.isEdit {
-					pasted := m.pastedImages
-					return m, func() tea.Msg {
-						err := m.client.UpdateIssue(
-							m.editKey,
-							sum,
-							m.descTextArea.Value(),
-							priority,
-							issueType,
-							m.assigneeInput.Value(),
-						)
-						if err != nil {
-							return formSubmittedMsg{issueID: m.editKey, err: err}
-						}
-						// Upload files
-						for _, img := range pasted {
-							var content []byte
-							var readErr error
-							if img.Path != "" {
-								content, readErr = os.ReadFile(img.Path)
-								if readErr != nil {
-									return formSubmittedMsg{issueID: m.editKey, err: fmt.Errorf("failed to read file %s: %w", img.Path, readErr)}
-								}
-							} else {
-								content = img.Bytes
-							}
-							if uploadErr := m.client.UploadAttachment(m.editKey, img.Name, content); uploadErr != nil {
-								return formSubmittedMsg{issueID: m.editKey, err: fmt.Errorf("failed to upload %s: %w", img.Name, uploadErr)}
-							}
-						}
-						return formSubmittedMsg{issueID: m.editKey, err: nil}
-					}
-				} else {
-					pasted := m.pastedImages
-					isClone := m.isClone
-					cloneIssueID := m.cloneIssueID
-					return m, func() tea.Msg {
-						id, err := m.client.CreateIssue(
-							proj,
-							sum,
-							m.descTextArea.Value(),
-							priority,
-							issueType,
-							m.assigneeInput.Value(),
-						)
-						if err != nil {
-							return formSubmittedMsg{issueID: id, err: err}
-						}
-						// If we are cloning, add a link pointing from the new issue to the original issue
-						if isClone && cloneIssueID != "" {
-							if linkErr := m.client.LinkClonedIssue(id, cloneIssueID); linkErr != nil {
-								return formSubmittedMsg{issueID: id, err: fmt.Errorf("failed to link cloned issue: %w", linkErr)}
-							}
-						}
-						// Upload files
-						for _, img := range pasted {
-							var content []byte
-							var readErr error
-							if img.Path != "" {
-								content, readErr = os.ReadFile(img.Path)
-								if readErr != nil {
-									return formSubmittedMsg{issueID: id, err: fmt.Errorf("failed to read file %s: %w", img.Path, readErr)}
-								}
-							} else {
-								content = img.Bytes
-							}
-							if uploadErr := m.client.UploadAttachment(id, img.Name, content); uploadErr != nil {
-								return formSubmittedMsg{issueID: id, err: fmt.Errorf("failed to upload %s: %w", img.Name, uploadErr)}
-							}
-						}
-						return formSubmittedMsg{issueID: id, err: nil}
-					}
-				}
+			project := m.getSelectedProjectCode()
+			summary := m.summaryInput.Value()
+			if project == "" || strings.TrimSpace(summary) == "" {
+				m.err = fmt.Errorf("Project and Summary fields are required")
+				m.errPopupShow = true
+				return m, nil
 			}
+
+			var issueType, priority string
+			if options := m.getTypes(); m.typeIndex > 0 && m.typeIndex < len(options) {
+				issueType = options[m.typeIndex]
+			}
+			if options := m.getPriorities(); m.priorityIndex > 0 && m.priorityIndex < len(options) {
+				priority = options[m.priorityIndex]
+			}
+			m.loading = true
+			m.err = nil
+			return m, m.submitIssueCmd(project, summary, priority, issueType)
 
 		case "tab", "down":
 			// If assignee field is focused and suggestions are showing, navigate suggestions.
@@ -731,11 +718,12 @@ func (m formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 					if len(m.projects) > 0 {
 						m.projectIndex = (m.projectIndex - 1 + len(m.projects)) % len(m.projects)
 					}
-					return m, nil
+					cmd = m.refreshProjectFields()
+					return m, cmd
 				case fieldType:
 					opts := m.getTypes()
 					if len(opts) > 0 {
-						m.typeIndex = (m.typeIndex - 1 + len(opts)) % len(opts)
+						m.selectIssueType((m.typeIndex - 1 + len(opts)) % len(opts))
 					}
 					return m, nil
 				case fieldPriority:
@@ -767,11 +755,12 @@ func (m formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 					if len(m.projects) > 0 {
 						m.projectIndex = (m.projectIndex + 1) % len(m.projects)
 					}
-					return m, nil
+					cmd = m.refreshProjectFields()
+					return m, cmd
 				case fieldType:
 					opts := m.getTypes()
 					if len(opts) > 0 {
-						m.typeIndex = (m.typeIndex + 1) % len(opts)
+						m.selectIssueType((m.typeIndex + 1) % len(opts))
 					}
 					return m, nil
 				case fieldPriority:
@@ -805,7 +794,7 @@ func (m formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 					opts := m.getTypes()
 					for i, opt := range opts {
 						if strings.HasPrefix(strings.ToLower(opt), char) {
-							m.typeIndex = i
+							m.selectIssueType(i)
 							break
 						}
 					}
@@ -826,7 +815,8 @@ func (m formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 							break
 						}
 					}
-					return m, nil
+					cmd = m.refreshProjectFields()
+					return m, cmd
 				}
 			}
 
@@ -871,7 +861,7 @@ func (m formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 			return m, cmd
 		}
 	}
-	return m, nil
+	return m, cmd
 }
 
 // filterUsers returns users whose FullName or Login contains the query (case-insensitive).
@@ -886,13 +876,7 @@ func (m formModel) filterUsers(query string) []ytcli.User {
 		return nil
 	}
 	if q == "" {
-		// Show all when field is empty but focused
-		result := make([]ytcli.User, len(m.allUsers))
-		copy(result, m.allUsers)
-		if len(result) > 8 {
-			result = result[:8]
-		}
-		return result
+		return nil
 	}
 	var result []ytcli.User
 	for _, u := range m.allUsers {
@@ -907,20 +891,34 @@ func (m formModel) filterUsers(query string) []ytcli.User {
 	return result
 }
 
+func (m formModel) fieldCount() formField {
+	if m.isClone || m.isEdit {
+		return fieldAssignee + 1
+	}
+	return numFields
+}
+
 func (m *formModel) nextField() {
 	m.blurCurrent()
-	m.focusIndex = (m.focusIndex + 1) % numFields
+	m.focusIndex = (m.focusIndex + 1) % m.fieldCount()
+	if m.focusIndex == fieldAssignee && m.createFields.metaReady && m.createFields.meta.AssigneeName == "" {
+		m.focusIndex = fieldState
+	}
 	if m.isEdit && m.focusIndex == fieldProject {
-		m.focusIndex = (m.focusIndex + 1) % numFields
+		m.focusIndex = fieldSummary
 	}
 	m.focusCurrent()
 }
 
 func (m *formModel) prevField() {
 	m.blurCurrent()
-	m.focusIndex = (m.focusIndex - 1 + numFields) % numFields
+	count := m.fieldCount()
+	m.focusIndex = (m.focusIndex - 1 + count) % count
+	if m.focusIndex == fieldAssignee && m.createFields.metaReady && m.createFields.meta.AssigneeName == "" {
+		m.focusIndex = fieldPriority
+	}
 	if m.isEdit && m.focusIndex == fieldProject {
-		m.focusIndex = (m.focusIndex - 1 + numFields) % numFields
+		m.focusIndex = fieldAssignee
 	}
 	m.focusCurrent()
 }
@@ -953,9 +951,16 @@ func (m *formModel) focusCurrent() {
 }
 
 func (m formModel) View() string {
+	if m.links.open() && !m.errPopupShow {
+		return m.links.view(m.width, m.height)
+	}
 	// Non-popup errors (e.g. load failures before form is shown) fall through to
 	// the spinner/loading path or are shown inline. Popup errors are rendered as
 	// an overlay after building the full form view below.
+
+	if m.pendingSave != nil {
+		return m.pendingSaveView()
+	}
 
 	if m.loading {
 		statusText := "Creating issue..."
@@ -1052,11 +1057,10 @@ func (m formModel) View() string {
 		priorityOptsList = renderDropdownOptions(priorities, m.priorityIndex)
 	}
 
-	// Build form layout with all labels on top of fields
-	formStyle := lipgloss.NewStyle().Padding(1, 2).Width(m.width - 4)
-	var builder strings.Builder
+	var fields [numFields]strings.Builder
+	builder := &fields[fieldProject]
+	startField := func(field formField) { builder = &fields[field] }
 
-	// Project
 	builder.WriteString("Project:\n")
 	builder.WriteString(renderField(projectVal, m.focusIndex == fieldProject, targetWidth))
 	builder.WriteString("\n")
@@ -1065,17 +1069,17 @@ func (m formModel) View() string {
 	}
 	builder.WriteString("\n")
 
-	// Summary
+	startField(fieldSummary)
 	builder.WriteString("Summary:\n")
 	builder.WriteString(renderField(m.summaryInput.View(), m.focusIndex == fieldSummary, targetWidth))
 	builder.WriteString("\n\n")
 
-	// Description
+	startField(fieldDescription)
 	builder.WriteString("Description:\n")
 	builder.WriteString(renderField(m.descTextArea.View(), m.focusIndex == fieldDescription, targetWidth))
 	builder.WriteString("\n\n")
 
-	// Type
+	startField(fieldType)
 	builder.WriteString("Type:\n")
 	builder.WriteString(renderField(typeVal, m.focusIndex == fieldType, targetWidth))
 	builder.WriteString("\n")
@@ -1084,7 +1088,7 @@ func (m formModel) View() string {
 	}
 	builder.WriteString("\n")
 
-	// Priority
+	startField(fieldPriority)
 	builder.WriteString("Priority:\n")
 	builder.WriteString(renderField(priorityVal, m.focusIndex == fieldPriority, targetWidth))
 	builder.WriteString("\n")
@@ -1093,7 +1097,7 @@ func (m formModel) View() string {
 	}
 	builder.WriteString("\n")
 
-	// Assignee
+	startField(fieldAssignee)
 	builder.WriteString("Assignee:\n")
 	builder.WriteString(renderField(m.assigneeInput.View(), m.focusIndex == fieldAssignee, targetWidth))
 	builder.WriteString("\n")
@@ -1103,7 +1107,23 @@ func (m formModel) View() string {
 	}
 	builder.WriteString("\n")
 
-	formContent := formStyle.Render(builder.String())
+	if !m.isEdit && !m.isClone {
+		startField(fieldState)
+		builder.WriteString("State:\n")
+		builder.WriteString(renderField(m.createFields.renderState(), m.focusIndex == fieldState, targetWidth))
+		builder.WriteString("\n\n")
+		startField(fieldTags)
+		builder.WriteString("Tags:\n")
+		builder.WriteString(renderField(m.createFields.renderTags(m.focusIndex == fieldTags), m.focusIndex == fieldTags, targetWidth))
+		builder.WriteString("\n\n")
+	}
+
+	if !m.isEdit && !m.isClone {
+		startField(fieldLinks)
+		builder.WriteString("Links:\n")
+		builder.WriteString(renderField(m.links.summary(), m.focusIndex == fieldLinks, targetWidth))
+		builder.WriteString("\n")
+	}
 
 	var helpText string
 	if m.filepickerActive {
@@ -1114,6 +1134,12 @@ func (m formModel) View() string {
 		}
 	} else if m.focusIndex == fieldDescription {
 		helpText = " [Tab/Shift-Tab] Navigate  [Ctrl+v] Paste Img  [Ctrl+f] Attach File  [Ctrl+g] External Editor  [Ctrl+s] Submit  [Esc] Back "
+	} else if m.focusIndex == fieldTags {
+		if m.createFields.tagSearching {
+			helpText = " Type to filter tags  [Enter] Keep search  [Esc] Clear search "
+		} else {
+			helpText = " [←/→] Browse tags  [/] Search  [Space] Toggle  [Tab] Next field  [Ctrl+s] Save "
+		}
 	} else if m.focusIndex == fieldSummary {
 		helpText = " [Tab/Shift-Tab] Navigate Fields  [Ctrl+s] Save & Submit  [Esc] Cancel/Back "
 	} else if m.focusIndex == fieldAssignee {
@@ -1125,8 +1151,9 @@ func (m formModel) View() string {
 	} else {
 		helpText = " [Tab/Shift-Tab] Navigate Fields  [<- / -> or h/l] Select Dropdown Option  [Ctrl+s] Save & Submit  [?] Help  [Esc] Cancel/Back "
 	}
-	help := StyleHelp.Render(helpText)
-
+	help := StyleHelp.Width(m.width).Render(strings.TrimSpace(helpText))
+	available := m.height - lipgloss.Height(title) - lipgloss.Height(help) - 1
+	formContent := m.renderVisibleFields(&fields, available)
 	view := lipgloss.JoinVertical(lipgloss.Left, title, formContent, "", help)
 	if m.filepickerActive {
 		view = overlayFilepickerPopups(view, m.renderFilePickerPopup(), m.zoxide.render(m.width, m.height), m.width, m.height)
@@ -1148,6 +1175,35 @@ func (m formModel) View() string {
 	}
 
 	return view
+}
+
+// Keep the active field and its choices in view as the user tabs through the
+// form. Measure after wrapping so long options work on narrow terminals.
+func (m formModel) renderVisibleFields(fields *[numFields]strings.Builder, available int) string {
+	var lines []string
+	focusStart, focusEnd := 0, 0
+	style := lipgloss.NewStyle().Padding(0, 2)
+	if m.width > 0 {
+		style = style.Width(m.width)
+	}
+	for field := range fields {
+		if fields[field].Len() == 0 {
+			continue
+		}
+		start := len(lines)
+		block := style.Render(strings.TrimRight(fields[field].String(), "\n"))
+		lines = append(lines, strings.Split(block, "\n")...)
+		if formField(field) == m.focusIndex {
+			focusStart, focusEnd = start, len(lines)
+		}
+		lines = append(lines, "")
+	}
+	if m.height > 0 {
+		available = max(1, available)
+		start := max(0, min(focusStart, focusEnd-available))
+		lines = lines[start:min(len(lines), start+available)]
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (m formModel) renderErrorPopup() string {

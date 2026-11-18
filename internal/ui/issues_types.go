@@ -15,6 +15,70 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
+type issueFilterView struct {
+	projectCode, query string
+}
+
+type issueListFilters struct {
+	selectedTypes, selectedTags        []string
+	excludedStates, excludedPriorities []string
+	text                               string
+}
+
+func (m *issuesModel) rememberFilters() {
+	if m.filtersByView == nil {
+		return
+	}
+	m.issueListFilters.text = m.searchInput.Value()
+	m.filtersByView[issueFilterView{m.projectCode, m.query}] = m.issueListFilters
+	if m.projectCode != "" {
+		for _, code := range m.projectAliases() {
+			if code != "" {
+				m.filtersByView[issueFilterView{code, m.query}] = m.issueListFilters
+			}
+		}
+	}
+}
+
+func (m *issuesModel) clearFilters() tea.Cmd {
+	reload := len(m.selectedTypes) != 0 || len(m.selectedTags) != 0 || m.err != nil
+	m.issueListFilters = issueListFilters{}
+	m.searchMode, m.filterMode = false, false
+	m.searchInput.SetValue("")
+	m.searchInput.Blur()
+	m.filterError = ""
+	m.lastSelectedIssueID = ""
+	m.updateTableHeight()
+	m.table.SetCursor(0)
+	if reload {
+		return m.startContext(false)
+	}
+	m.updateTableRows()
+	return nil
+}
+
+func excludedValue(values []string, value string) bool {
+	return slices.ContainsFunc(values, func(s string) bool { return strings.EqualFold(s, value) })
+}
+
+func localFilterSection(title string, options, excluded []string) issueFilterSection {
+	selected := make(map[string]bool, len(options))
+	for _, value := range options {
+		selected[value] = !excludedValue(excluded, value)
+	}
+	return issueFilterSection{Title: title, Options: options, Selected: selected}
+}
+
+func excludedValues(section issueFilterSection) []string {
+	var excluded []string
+	for _, option := range section.Options {
+		if !section.Selected[option] {
+			excluded = append(excluded, option)
+		}
+	}
+	return excluded
+}
+
 type issueTypesKey struct {
 	serverURL, projectCode, fieldName, fieldConfig, contextKey string
 }
@@ -65,15 +129,7 @@ func (m *issuesModel) startIssueContext(refresh bool) tea.Cmd {
 	if m.client != nil {
 		m.serverURL = m.client.GetConfiguredBaseURL()
 	}
-	m.selectedTypes = nil
-	m.selectedTags = nil
 	m.typeInfoLoading = false
-	if m.projectCode != "" {
-		m.selectedTypes = normalizedTypes(m.cfg.GetFilteredTypes(m.projectCode))
-		if m.tagScopeReady {
-			m.selectedTags = normalizedTags(m.cfg.GetFilteredTags(m.tagScope, m.projectCode))
-		}
-	}
 	m.typeInfo, m.typeInfoErr = ytcli.IssueTypeInfo{}, nil
 	m.err, m.loadingText = nil, ""
 	m.issues, m.skip, m.loadedAll, m.limitReached = nil, 0, false, false
@@ -112,13 +168,13 @@ func (m *issuesModel) startIssueContext(refresh bool) tea.Cmd {
 }
 
 func (m *issuesModel) restoreOrLoadIssues() tea.Cmd {
-	if m.typeInfoLoading || (m.tagScopeLoading && m.cfg != nil && len(m.cfg.FilteredTags) > 0) {
+	if m.typeInfoLoading {
 		return nil
 	}
 	m.err = nil
 	if m.projectCode != "" {
 		previous := m.selectedTypes
-		m.selectedTypes = canonicalTypeValues(m.cfg.GetFilteredTypes(m.projectAliases()...), m.typeInfo.Values)
+		m.selectedTypes = canonicalTypeValues(m.selectedTypes, m.typeInfo.Values)
 		if m.filterMode && len(m.filterPanel.sections) >= 3 {
 			section := &m.filterPanel.sections[2]
 			if !section.choseAll && slices.Equal(normalizedTypes(selectedValues(section.Options, section.Selected)), previous) {
@@ -128,11 +184,6 @@ func (m *issuesModel) restoreOrLoadIssues() tea.Cmd {
 		}
 	}
 	m.serverQuery = m.query
-	if m.unresolvedSavedTypeFilter() {
-		m.err = fmt.Errorf("cannot resolve saved project type filters: %w; choose All types or retry", m.typeInfoErr)
-		m.loading = false
-		return nil
-	}
 	if len(m.selectedTypes) > 0 {
 		if m.typeInfoErr != nil {
 			m.err = fmt.Errorf("cannot apply type filter: %w", m.typeInfoErr)
@@ -166,24 +217,6 @@ func (m *issuesModel) restoreOrLoadIssues() tea.Cmd {
 		}
 	}
 	return m.loadIssuesCmd()
-}
-
-// If identity lookup failed, an ID-keyed filter may belong to this short name.
-// Do not mistake an unresolved alias for an unfiltered project. An explicit
-// All entry for the current view remains a recovery path without metadata.
-func (m issuesModel) unresolvedSavedTypeFilter() bool {
-	if m.projectCode == "" || m.typeInfoErr == nil || m.typeInfo.Project.ID != "" || m.cfg == nil {
-		return false
-	}
-	if _, explicit := m.cfg.FilteredTypes[m.projectCode]; explicit {
-		return false
-	}
-	for code, values := range m.cfg.FilteredTypes {
-		if code != "default" && len(values) > 0 {
-			return true
-		}
-	}
-	return false
 }
 
 func normalizedTypes(values []string) []string {
@@ -257,13 +290,9 @@ func (m issuesModel) availableTypes() []string {
 }
 
 func (m *issuesModel) openFilters() tea.Cmd {
-	if m.cfg == nil {
-		return nil
-	}
-	code := m.effectiveProjectCode()
 	sections := []issueFilterSection{
-		{Title: "States", Options: m.getAvailableStates(), Selected: selection(m.cfg.GetFilteredStates(code))},
-		{Title: "Priorities", Options: m.getAvailablePriorities(), Selected: selection(m.cfg.GetFilteredPriorities(code))},
+		localFilterSection("States", m.getAvailableStates(), m.excludedStates),
+		localFilterSection("Priorities", m.getAvailablePriorities(), m.excludedPriorities),
 	}
 	if m.projectCode != "" {
 		sections = append(sections, issueFilterSection{
@@ -274,114 +303,44 @@ func (m *issuesModel) openFilters() tea.Cmd {
 	m.filterPanel = newIssuesFilterPanel(sections)
 	m.filterMode, m.filterError = true, ""
 	if m.projectCode != "" && !m.tagsLoaded && !m.tagsLoading {
-		return m.loadTagsCmd(true)
+		return m.loadTagsCmd()
 	}
 	return nil
 }
 
 func (m *issuesModel) saveFilters() tea.Cmd {
-	if m.cfg == nil || len(m.filterPanel.sections) < 2 {
+	if len(m.filterPanel.sections) < 2 {
 		return nil
 	}
-	code := m.effectiveProjectCode()
-	// Save a detached candidate. A failed write must not apply half the filters.
-	next := *m.cfg
-	next.FilteredStates = maps.Clone(m.cfg.FilteredStates)
-	next.FilteredPriorities = maps.Clone(m.cfg.FilteredPriorities)
-	next.FilteredTypes = maps.Clone(m.cfg.FilteredTypes)
-	states, priorities := m.filterPanel.sections[0], m.filterPanel.sections[1]
-	stateValues := selectedValues(states.Options, states.Selected)
-	priorityValues := selectedValues(priorities.Options, priorities.Selected)
-	// Applying one section must not turn the other inherited selections into
-	// fixed project overrides. Compare sets because option order is incidental.
-	if !maps.Equal(selection(stateValues), selection(m.cfg.GetFilteredStates(code))) {
-		next.SetFilteredStates(code, stateValues)
-	}
-	if !maps.Equal(selection(priorityValues), selection(m.cfg.GetFilteredPriorities(code))) {
-		next.SetFilteredPriorities(code, priorityValues)
-	}
-	typesChanged := false
+	next := m.issueListFilters
+	next.excludedStates = excludedValues(m.filterPanel.sections[0])
+	next.excludedPriorities = excludedValues(m.filterPanel.sections[1])
 	if len(m.filterPanel.sections) >= 3 {
 		types := m.filterPanel.sections[2]
-		if types.choseAll && m.typeInfoLoading && len(m.cfg.FilteredTypes) > 0 {
-			m.filterError = "Loading project details. Press Enter again to save."
-			return nil
-		}
-		values := normalizedTypes(selectedValues(types.Options, types.Selected))
-		if len(values) > 0 {
+		next.selectedTypes = normalizedTypes(selectedValues(types.Options, types.Selected))
+		if len(next.selectedTypes) > 0 && !slices.Equal(m.selectedTypes, next.selectedTypes) {
 			if !m.typeInfo.Found || m.typeInfoErr != nil {
 				m.filterError = "Type options unavailable. Choose All types or press Esc, then r to retry."
 				return nil
 			}
-			if _, err := ytcli.IssueTypeQuery(m.typeInfo.FieldName, values); err != nil {
+			if _, err := ytcli.IssueTypeQuery(m.typeInfo.FieldName, next.selectedTypes); err != nil {
 				m.filterError = err.Error()
 				return nil
 			}
 		}
-		typesChanged = !slices.Equal(values, m.selectedTypes) || (types.choseAll && m.unresolvedSavedTypeFilter())
-		if typesChanged {
-			aliases := m.projectAliases()
-			canonical := m.projectCode
-			for _, alias := range aliases {
-				if alias != "" {
-					canonical = alias
-					break
-				}
-			}
-			for _, alias := range aliases {
-				if alias != canonical {
-					delete(next.FilteredTypes, alias)
-				}
-			}
-			next.SetFilteredTypes(canonical, values)
-		}
 	}
-	tagsChanged := false
-	if len(m.filterPanel.sections) > 3 {
+	if len(m.filterPanel.sections) >= 4 {
 		tags := m.filterPanel.sections[3]
-		if tags.choseAll && len(m.cfg.FilteredTags) > 0 {
-			if !m.tagScopeReady {
-				m.filterError = m.tagNotice()
-				return nil
-			}
-			if m.typeInfoLoading && len(m.cfg.FilteredTags[m.tagScope]) > 0 {
-				m.filterError = "Loading project details. Press Enter again to save."
-				return nil
-			}
-		}
-		names := normalizedTags(selectedValues(tags.Options, tags.Selected))
-		tagsChanged = !slices.Equal(names, m.selectedTags) || (tags.choseAll && m.unresolvedSavedTagFilter())
-		if tagsChanged {
-			if !m.tagScopeReady {
-				m.filterError = "Tag account unavailable. Close filters and press r to retry."
-				return nil
-			}
-			if _, err := ytcli.TagQuery(names); err != nil {
-				m.filterError = err.Error()
-				return nil
-			}
-			canonical := m.projectCode
-			for _, alias := range m.projectAliases() {
-				if alias != "" {
-					canonical = alias
-					break
-				}
-			}
-			next.SetFilteredTags(m.tagScope, canonical, names)
-			for _, alias := range m.projectAliases() {
-				if alias != canonical {
-					delete(next.FilteredTags[m.tagScope], alias)
-				}
-			}
+		next.selectedTags = normalizedTags(selectedValues(tags.Options, tags.Selected))
+		if _, err := ytcli.TagQuery(next.selectedTags); err != nil {
+			m.filterError = err.Error()
+			return nil
 		}
 	}
-	if err := config.SaveConfig(&next); err != nil {
-		m.filterError = "Could not save filters: " + err.Error()
-		return nil
-	}
-	*m.cfg = next
+	reload := !slices.Equal(next.selectedTypes, m.selectedTypes) || !slices.Equal(next.selectedTags, m.selectedTags) || m.err != nil
+	m.issueListFilters = next
 	m.filterMode, m.filterError = false, ""
-	if typesChanged || tagsChanged || m.err != nil {
+	if reload {
 		return m.startContext(false)
 	}
 	m.updateTableRows()
@@ -394,7 +353,7 @@ func (m issuesModel) filterNotice() string {
 		return "Type and tag filtering are available in project issue lists."
 	}
 	if m.typeInfoErr != nil {
-		return "Type options unavailable; only saved/observed values shown. [r] Retry after closing filters."
+		return "Type options unavailable; only selected/observed values shown. [r] Retry after closing filters."
 	}
 	if m.loading && !m.typeInfo.Found {
 		return "Loading project type options..."
@@ -433,7 +392,7 @@ func (m issuesModel) filterPanelView() string {
 	if notice != "" {
 		lines = append(lines, ansi.Truncate(notice, width, "…"))
 	}
-	lines = append(lines, "←→/Tab Sections · ↑↓ Move · Space Toggle", "Enter Save · Esc Cancel · / Search tags")
+	lines = append(lines, "←→/Tab Sections · ↑↓ Move · Space Toggle", "Enter Apply · Esc Cancel · / Search tags")
 	if m.filterPanel.searchMode {
 		lines[len(lines)-1] = "Enter Finish search · Esc Clear search · Tab Section"
 	}
@@ -459,29 +418,28 @@ func (m issuesModel) filterSummary() string {
 			parts = append(parts, "Tags (any): "+safeTagLabel(strings.Join(m.selectedTags, ", ")))
 		}
 	}
-	if m.cfg != nil {
-		code := m.effectiveProjectCode()
-		for _, section := range []struct {
-			name              string
-			options, selected []string
-		}{
-			{"States", m.getAvailableStates(), m.cfg.GetFilteredStates(code)},
-			{"Priorities", m.getAvailablePriorities(), m.cfg.GetFilteredPriorities(code)},
-		} {
-			all := true
-			for _, option := range section.options {
-				if !slices.ContainsFunc(section.selected, func(s string) bool { return strings.EqualFold(s, option) }) {
-					all = false
-				}
-			}
-			if !all {
-				value := strings.Join(section.selected, ", ")
-				if value == "" {
-					value = "None"
-				}
-				parts = append(parts, section.name+": "+value)
+	for _, section := range []struct {
+		title    string
+		excluded []string
+		options  func() []string
+	}{
+		{"States", m.excludedStates, m.getAvailableStates},
+		{"Priorities", m.excludedPriorities, m.getAvailablePriorities},
+	} {
+		if len(section.excluded) == 0 {
+			continue
+		}
+		var enabled []string
+		for _, value := range section.options() {
+			if !excludedValue(section.excluded, value) {
+				enabled = append(enabled, value)
 			}
 		}
+		value := strings.Join(enabled, ", ")
+		if value == "" {
+			value = "None"
+		}
+		parts = append(parts, section.title+": "+value)
 	}
 	if phrase := m.searchInput.Value(); phrase != "" {
 		parts = append(parts, "Text: "+phrase)
@@ -489,7 +447,7 @@ func (m issuesModel) filterSummary() string {
 	if m.typeInfoErr != nil {
 		parts = append(parts, "Type options unavailable (r to retry)")
 	}
-	if m.tagsErr != nil || m.tagScopeErr != nil {
+	if m.tagsErr != nil {
 		parts = append(parts, "Tag options unavailable (r to retry)")
 	}
 	return ansi.Truncate(strings.Join(parts, " · "), max(1, m.width), "…")

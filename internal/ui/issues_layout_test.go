@@ -59,7 +59,7 @@ func TestAppIssueFilterFitsRootPaddingAndKeepsHelp(t *testing.T) {
 				t.Fatal("issue model did not reserve the root's horizontal padding")
 			}
 			plain := ansi.Strip(view)
-			for _, text := range []string{"Types", "All types", "Enter Save", "Esc Cancel"} {
+			for _, text := range []string{"Types", "All types", "Enter Apply", "Esc Cancel"} {
 				if !strings.Contains(plain, text) {
 					t.Fatalf("filter view lost %q at %v:\n%s", text, size, plain)
 				}
@@ -74,7 +74,7 @@ func TestAppIssuesTableResponsiveTypeAndSummary(t *testing.T) {
 		view := app.View()
 		assertIssuesViewFits(t, view, width, 24)
 		plain := ansi.Strip(view)
-		for _, text := range []string{"Type", "Summary", "Epic", "Story", "Login with passkey", "[F] Filter", "[Esc] Back"} {
+		for _, text := range []string{"Type", "Summary", "Epic", "Story", "Login with passkey", "[f] Filter", "[Ctrl+f] Clear filters", "[Esc] Back"} {
 			if !strings.Contains(plain, text) {
 				t.Fatalf("table lost %q at width %d:\n%s", text, width, plain)
 			}
