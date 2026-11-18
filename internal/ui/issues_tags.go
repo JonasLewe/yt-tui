@@ -158,7 +158,7 @@ func (m *issuesModel) applyTagQuery() bool {
 	}
 	if m.filterMode && len(m.filterPanel.sections) > 3 {
 		section := &m.filterPanel.sections[3]
-		if slices.Equal(normalizedTags(selectedValues(section.Options, section.Selected)), previous) {
+		if !section.choseAll && slices.Equal(normalizedTags(selectedValues(section.Options, section.Selected)), previous) {
 			section.Selected = selection(m.selectedTags)
 		}
 		section.Options = m.availableTags()

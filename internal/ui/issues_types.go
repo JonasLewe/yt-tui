@@ -121,7 +121,7 @@ func (m *issuesModel) restoreOrLoadIssues() tea.Cmd {
 		m.selectedTypes = canonicalTypeValues(m.cfg.GetFilteredTypes(m.projectAliases()...), m.typeInfo.Values)
 		if m.filterMode && len(m.filterPanel.sections) >= 3 {
 			section := &m.filterPanel.sections[2]
-			if slices.Equal(normalizedTypes(selectedValues(section.Options, section.Selected)), previous) {
+			if !section.choseAll && slices.Equal(normalizedTypes(selectedValues(section.Options, section.Selected)), previous) {
 				section.Selected = selection(m.selectedTypes)
 			}
 			section.Options = m.availableTypes()
@@ -129,7 +129,7 @@ func (m *issuesModel) restoreOrLoadIssues() tea.Cmd {
 	}
 	m.serverQuery = m.query
 	if m.unresolvedSavedTypeFilter() {
-		m.err = fmt.Errorf("cannot resolve saved project type filters: %w", m.typeInfoErr)
+		m.err = fmt.Errorf("cannot resolve saved project type filters: %w; choose All types or retry", m.typeInfoErr)
 		m.loading = false
 		return nil
 	}
@@ -303,6 +303,10 @@ func (m *issuesModel) saveFilters() tea.Cmd {
 	typesChanged := false
 	if len(m.filterPanel.sections) >= 3 {
 		types := m.filterPanel.sections[2]
+		if types.choseAll && m.typeInfoLoading && len(m.cfg.FilteredTypes) > 0 {
+			m.filterError = "Loading project details. Press Enter again to save."
+			return nil
+		}
 		values := normalizedTypes(selectedValues(types.Options, types.Selected))
 		if len(values) > 0 {
 			if !m.typeInfo.Found || m.typeInfoErr != nil {
@@ -314,7 +318,7 @@ func (m *issuesModel) saveFilters() tea.Cmd {
 				return nil
 			}
 		}
-		typesChanged = !slices.Equal(values, m.selectedTypes)
+		typesChanged = !slices.Equal(values, m.selectedTypes) || (types.choseAll && m.unresolvedSavedTypeFilter())
 		if typesChanged {
 			aliases := m.projectAliases()
 			canonical := m.projectCode
@@ -335,8 +339,18 @@ func (m *issuesModel) saveFilters() tea.Cmd {
 	tagsChanged := false
 	if len(m.filterPanel.sections) > 3 {
 		tags := m.filterPanel.sections[3]
+		if tags.choseAll && len(m.cfg.FilteredTags) > 0 {
+			if !m.tagScopeReady {
+				m.filterError = m.tagNotice()
+				return nil
+			}
+			if m.typeInfoLoading && len(m.cfg.FilteredTags[m.tagScope]) > 0 {
+				m.filterError = "Loading project details. Press Enter again to save."
+				return nil
+			}
+		}
 		names := normalizedTags(selectedValues(tags.Options, tags.Selected))
-		tagsChanged = !slices.Equal(names, m.selectedTags) || m.unresolvedSavedTagFilter()
+		tagsChanged = !slices.Equal(names, m.selectedTags) || (tags.choseAll && m.unresolvedSavedTagFilter())
 		if tagsChanged {
 			if !m.tagScopeReady {
 				m.filterError = "Tag account unavailable. Close filters and press r to retry."

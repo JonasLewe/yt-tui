@@ -421,6 +421,31 @@ func TestPendingMetadataUpdatesOnlyUntouchedTypeDraft(t *testing.T) {
 	}
 }
 
+func TestExplicitClearWhileProjectDetailsAreLoading(t *testing.T) {
+	m := tagFilterModel(t)
+	info := m.typeInfo
+	m.typeInfo, m.typeInfoLoading = ytcli.IssueTypeInfo{}, true
+	m.cfg.SetFilteredTypes("0-1", []string{"Epic"})
+	m.cfg.SetFilteredTags(m.tagScope, "0-1", []string{"backend"})
+	m.openFilters()
+	for _, section := range []int{2, 3} {
+		m.filterPanel.section, m.filterPanel.cursor = section, 0
+		m.filterPanel.toggle()
+	}
+	if cmd := m.saveFilters(); cmd != nil || !m.filterMode {
+		t.Fatal("saving before project resolution discarded the draft")
+	}
+	m, _ = m.Update(issueTypesMsg{key: m.typeKey(), requestID: m.requestID, info: info})
+	m.saveFilters()
+	saved, err := config.LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.filterMode || len(saved.GetFilteredTypes("DEMO", "0-1")) != 0 || len(saved.GetFilteredTags(m.tagScope, "DEMO", "0-1")) != 0 {
+		t.Fatal("project details arriving during editing overwrote explicit clears")
+	}
+}
+
 func TestTypeChoicesCanonicalizeSavedCaseWithoutDuplicates(t *testing.T) {
 	m := typeFilterModel(t)
 	m.cfg.SetFilteredTypes("DEMO", []string{"epic", "EPIC", "Archived Kind"})
@@ -447,10 +472,18 @@ func TestUnresolvedProjectCannotBypassAnIDKeyedSavedFilter(t *testing.T) {
 		t.Fatal("unresolved alias silently loaded unfiltered issues")
 	}
 	m.openFilters()
-	clear(m.filterPanel.sections[2].Selected)
+	m.filterPanel.section, m.filterPanel.cursor = 2, 0
+	m.filterPanel.toggle()
 	m.saveFilters()
-	if m.err != nil {
-		t.Fatalf("explicit All could not recover: %v", m.err)
+	saved, err := config.LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if types, ok := saved.FilteredTypes["DEMO"]; !ok || len(types) != 0 {
+		t.Fatalf("explicit All was not saved for DEMO: %v", saved.FilteredTypes)
+	}
+	if !slices.Equal(saved.FilteredTypes["0-1"], []string{"Epic"}) {
+		t.Fatal("clearing DEMO modified an unresolved project")
 	}
 }
 

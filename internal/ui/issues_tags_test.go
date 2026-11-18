@@ -138,15 +138,39 @@ func TestTagAccountFailureBlocksSavedFilters(t *testing.T) {
 func TestTagUnresolvedProjectAliasRequiresExplicitClear(t *testing.T) {
 	m := tagFilterModel(t)
 	m.cfg.SetFilteredTags(m.tagScope, "0-1", []string{"backend"})
-	m.typeInfo = ytcli.IssueTypeInfo{}
-	m.typeInfoErr = errors.New("project forbidden")
-	if cmd := m.restoreOrLoadIssues(); cmd != nil || m.err == nil {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/admin/projects":
+			http.Error(w, "forbidden", http.StatusForbidden)
+		case "/api/issues":
+			fmt.Fprint(w, "[]")
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	m.client = ytcli.NewClient()
+	m.client.SetCredentials(server.URL, "test-token")
+	m.contextKey = m.client.ContextKey()
+	cmd := m.initProject("DEMO", false)
+	m = runIssueCommands(t, m, cmd)
+	if !m.unresolvedSavedTagFilter() || m.err == nil {
 		t.Fatal("unresolved alias widened filter")
 	}
 	m.openFilters()
-	m.saveFilters()
-	if m.err != nil || m.unresolvedSavedTagFilter() {
-		t.Fatal("No restriction did not recover unresolved alias")
+	m.filterPanel.toggle() // Edit only the State section.
+	cmd = m.saveFilters()
+	m = runIssueCommands(t, m, cmd)
+	if _, ok := m.cfg.FilteredTags[m.tagScope]["DEMO"]; ok || !m.unresolvedSavedTagFilter() {
+		t.Fatal("saving an unrelated change removed the unresolved tag restriction")
+	}
+	m.openFilters()
+	m.filterPanel.section, m.filterPanel.cursor = 3, 0
+	m.filterPanel.toggle()
+	cmd = m.saveFilters()
+	m = runIssueCommands(t, m, cmd)
+	if m.err != nil || !m.loadedAll {
+		t.Fatalf("No restriction did not recover the issue list: %v", m.err)
 	}
 	if names, ok := m.cfg.FilteredTags[m.tagScope]["DEMO"]; !ok || len(names) > 0 {
 		t.Fatal("clear wasn't saved")

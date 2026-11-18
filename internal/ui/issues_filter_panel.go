@@ -19,6 +19,7 @@ type issueFilterSection struct {
 	AllLabel   string
 	Searchable bool
 	Search     string
+	choseAll   bool // An explicit clear can precede the arrival of saved selections.
 }
 
 type issuesFilterPanel struct {
@@ -164,7 +165,8 @@ func (p *issuesFilterPanel) toggle() {
 	if section.rows() == 0 {
 		return
 	}
-	if section.AllowAll && p.cursor == 0 {
+	section.choseAll = section.AllowAll && p.cursor == 0
+	if section.choseAll {
 		clear(section.Selected)
 		return
 	}
