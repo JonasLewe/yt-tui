@@ -478,6 +478,12 @@ Native tags appear as a wrapped list in the scrollable Description pane, so long
 * `r`: Force refresh issue details, comments, links, and attachments.
 * `Esc` / `Backspace`: Go back to the issues list (or the previous issue if navigated via links).
 
+### Add tags to a new issue
+
+1. Press `n` in a project's issue list, enter a summary, and press `Tab` until **Tags** is focused.
+2. Use `←` / `→` to browse tags visible to your account. To search by name or owner, press `/`, type your query, then press `Enter` to return to the matches. Each tag shows its owner, or its ID if the owner is unavailable.
+3. Press `Space` to select or deselect a tag. You can select several tags, including tags with the same name. Press `Ctrl+s` to create the issue with your selections.
+
 ### 📝 Issue Form (Create / Clone / Edit)
 * `Tab` / `Shift+Tab` / `↑` / `↓`: Move focus between form fields. When the **Assignee** field is focused and suggestions are visible, `↑`/`↓` navigates the suggestion list instead.
 * On the **Assignee** field: a **live autocomplete dropdown** appears as you type, filtering project members and YouTrack users. Press `Tab` or `Enter` while a suggestion is highlighted to apply its actual YouTrack login. Editing and cloning also preserve the assignee's login, including capitalization and accented characters. You can still type any name freely if the list is empty or the person is not listed; manually entered multi-word names use the configured `username_separator`.

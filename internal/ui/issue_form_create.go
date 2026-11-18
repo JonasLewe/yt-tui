@@ -9,6 +9,9 @@ func (m formModel) createIssue(project, summary, priority, issueType string) (st
 		options = append(options, ytcli.WithInitialState(m.initialState.choices.FieldName, state.ID))
 	}
 	description := m.descTextArea.Value()
+	if !m.isEdit && !m.isClone && len(m.createTags.tagIDs) > 0 {
+		options = append(options, ytcli.WithIssueTags(m.createTags.tagIDs))
+	}
 	login := m.assigneeInput.Value()
 	if !m.isEdit && !m.isClone {
 		assignee, err := m.newIssueAssignee(project)

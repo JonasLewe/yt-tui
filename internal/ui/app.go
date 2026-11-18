@@ -827,7 +827,8 @@ func (m AppModel) isAnyInputFocused() bool {
 		return m.form.loading || m.form.pendingSave != nil || m.form.links.open() || m.form.zoxide.input.Focused() ||
 			m.form.summaryInput.Focused() ||
 			m.form.descTextArea.Focused() ||
-			m.form.assigneeInput.Focused()
+			m.form.assigneeInput.Focused() ||
+			m.form.createTags.tagSearching
 	default:
 		return false
 	}
